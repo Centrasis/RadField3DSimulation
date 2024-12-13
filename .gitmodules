@@ -1,0 +1,6 @@
+[submodule "tools/modules/speckpy"]
+	path = tools/modules/speckpy
+	url = https://bitbucket.org/spekpy/spekpy_release.git
+[submodule "targets/radiationfieldstorage"]
+	path = targets/radiationfieldstorage
+	url = https://github.com/Centrasis/RadFiled3D.git
