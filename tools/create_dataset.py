@@ -134,7 +134,7 @@ def write_spectum_file(src_file: str, out_path: str):
     if not os.path.exists(os.path.dirname(out_path)):
         os.makedirs(os.path.dirname(out_path))
 
-    spectrum = torch.load(src_file)
+    spectrum = torch.load(src_file, weights_only=True)
 
     energies = spectrum[0]
     fluence = spectrum[1]
