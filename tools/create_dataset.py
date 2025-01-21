@@ -157,7 +157,7 @@ if __name__ == "__main__":
     parser.add_argument("--voxel_size", default=0.05, type=float, nargs=1, required=False, help="Dimension of the cubic voxels in m")
     parser.add_argument("--world_size", default=[1, 1, 1], type=float, nargs=3, required=False, help="Dimension of the rectangular world in m")
     parser.add_argument("--energy_res", default=1e+2, type=float, nargs=1, required=False, help="Energy resolution to use in eV for the sampling of new energies during dataset creation.")
-    parser.add_argument("--binary", default="CalcRF.exe", type=str, nargs=1, required=False, help="Path to CalcRF Binary")
+    parser.add_argument("--binary", default="RadField3D.exe", type=str, nargs=1, required=False, help="Path to RadField3D Binary")
     parser.add_argument("--spectra", default=None, type=str, nargs=1, required=False, help="Path to a folder of a spectra dataset or a single spectrum that should be used. (Disables energy sampling)")
     parser.add_argument("--source_distance", default=1.0, type=float, nargs=1, required=False, help="Distance of the source to the geometry in m")
     parser.add_argument("--source_shape", default="cone", type=str, nargs=1, required=False, help="Shape of the source (cone, rectangle)")
