@@ -128,7 +128,7 @@ Parameters:
 - *bin_count*: Sets the energy resolution according to the desired bin count and maximum energy.
 - *tracer_algorithm*: The used algorithm to find intersected voxels for a given particle path. Can be one of `sampling`, `bresenham` or `linetracing`.
 - *sequence_file*: Optional: Allows to load some of the options sequentially from a JSON-File to automate specific dataset configurations under specified conditions.
-- *cluster_node_partition*: Optional. Only used when `sequence_file` is set. Allows to determine which  section of a sequence file should be processed by this process. Useful when multiple instances are run on a cluster. Specify in the form of: "n" "m" where n is the current node ID and m is the total node count.
+- *cluster_node_partition*: Optional. Only used when `sequence_file` is set. Allows to determine which  section of a sequence file should be processed by this process. Useful when multiple instances are run on a cluster. Specify in the form of: "m" "n" where n is the current node ID ([0..(m-1)]) and m is the total node count.
 
 
 **WARNING**: Linetracting algorithm currently under experimental testing.
