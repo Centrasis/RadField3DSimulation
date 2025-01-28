@@ -23,6 +23,9 @@ namespace RadiationSimulation {
 		void place_mesh(std::shared_ptr<G4Mesh> mesh, G4LogicalVolume* parent);
 	public:
 		G4SceneConstructor(const std::vector<std::shared_ptr<Mesh>>& meshes);
+		virtual ~G4SceneConstructor() {
+			G4cout << "G4SceneConstructor destroyed" << G4endl;
+		}
 		G4VPhysicalVolume* Construct();
 		virtual void ConstructSDandField() override;
 	};

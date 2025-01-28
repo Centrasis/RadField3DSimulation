@@ -16,5 +16,9 @@ namespace RadiationSimulation {
 	public:
 		G4RadiationSource(std::shared_ptr<RadiationSource> source, int fluence_per_run = 1);
 		void GeneratePrimaries(G4Event* evt);
+
+		virtual ~G4RadiationSource() {
+			G4cout << "G4RadiationSource destroyed" << G4endl;
+		}
 	};
 }

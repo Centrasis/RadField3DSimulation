@@ -120,18 +120,20 @@ namespace RadiationSimulation {
 
 				for (size_t voxel_idx : voxel_indices) {
 					auto& hist_voxel = buffer.get_voxel_flat<RadFiled3D::HistogramVoxel>("spectrum", voxel_idx);
-					const size_t index = static_cast<size_t>(energy / hist_voxel.get_histogram_bin_width());
-
-					if (index < hist_voxel.get_bins()) {
-						std::unique_lock lock(this->mutexes[voxel_idx]);
-						this->buffer.get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("energy", voxel_idx) += energy;
-						this->buffer.get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("hits", voxel_idx) += 1.f;
-
-						this->pca[voxel_idx].addVector(direction);
-
-						(&hist_voxel.get_data())[index] += 1.f;
-						this->spectra_variance[voxel_idx].add(hist_voxel);
+					size_t index = static_cast<size_t>(energy / hist_voxel.get_histogram_bin_width());
+					if (index >= hist_voxel.get_bins()) {
+						index = hist_voxel.get_bins() - 1;
+						G4cout << "WARNING: Energy value exceeds histogram energy range. Energy: " << energy << " MeV" << G4endl;
 					}
+
+					std::unique_lock lock(this->mutexes[voxel_idx]);
+					this->buffer.get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("energy", voxel_idx) += energy;
+					this->buffer.get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("hits", voxel_idx) += 1.f;
+
+					this->pca[voxel_idx].addVector(direction);
+
+					(&hist_voxel.get_data())[index] += 1.f;
+					this->spectra_variance[voxel_idx].add(hist_voxel);
 				}
 			}
 
@@ -198,6 +200,9 @@ namespace RadiationSimulation {
 		std::vector< std::function<void(size_t, const G4Step*)>> new_particle_callbacks;
 	public:
 		G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold = 0.1f);
+		virtual ~G4RadiationFieldDetector() {
+			G4cout << "G4RadiationFieldDetector destroyed" << G4endl;
+		}
 		virtual void SetUp() override;
 		virtual void finalize(size_t particle_count);
 
@@ -227,5 +232,8 @@ namespace RadiationSimulation {
 	public:
 		G4RadiationFieldAction(std::shared_ptr<G4RadiationFieldDetector> det, std::shared_ptr<G4RadiationSource> source) : det(det), source(source) {};
 		void Build() const;
+		virtual ~G4RadiationFieldAction() {
+			G4cout << "G4RadiationFieldAction destroyed" << G4endl;
+		}
 	};
 }

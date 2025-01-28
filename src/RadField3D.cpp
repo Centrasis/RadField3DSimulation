@@ -283,7 +283,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	G4cout << "Set X-Ray source energy to: " << xray_energy / 1e+3 << "keV" << G4endl;
-	G4cout << "Set X-Ray source roation (" << source_angle_alpha << "°, " << source_angle_beta << "°)" << G4endl;
+	G4cout << "Set X-Ray source rotation (" << source_angle_alpha << "°, " << source_angle_beta << "°)" << G4endl;
 	G4cout << "Set X-Ray source distance to " << source_distance << " m" << G4endl;
 	
 	glm::quat rotation = glm::angleAxis(glm::radians(source_angle_alpha), glm::vec3(0.f, 1.f, 0.f)) * glm::angleAxis(glm::radians(source_angle_beta), glm::vec3(1.f, 0.f, 0.f));
@@ -329,7 +329,9 @@ int main(int argc, char* argv[]) {
 
 	G4cout << G4endl << "Wrote field to: " << out_path.string() << G4endl;
 
-	RadiationSimulator::deinitialize();
+	std::quick_exit(EXIT_SUCCESS);
+
+	// RadiationSimulator::deinitialize(); double free error.
 
 	return 0;
 }

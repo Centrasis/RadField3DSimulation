@@ -43,9 +43,15 @@ void RadiationSimulation::G4RadiationFieldDetector::evaluate_field()
 
 	std::shared_ptr<RadFiled3D::VoxelGridBuffer> scatter_buffer = this->field->get_channel("scatter_field");
 	std::shared_ptr<RadFiled3D::VoxelGridBuffer> xray_buffer = this->field->get_channel("xray_beam");
+	float accumulated_hits_per_particle = 0.f;
+	float max_hits = 0.f;
 	for (size_t i = 0; i < this->field->get_voxel_counts().x * this->field->get_voxel_counts().y * this->field->get_voxel_counts().z; i++) {
 		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("energy", i) /= static_cast<float>(primary_particles);
+		float hits = scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("hits", i).get_data();
+		if (hits > max_hits)
+			max_hits = hits;
 		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("hits", i) /= static_cast<float>(primary_particles);
+		accumulated_hits_per_particle += scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("hits", i).get_data();
 		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<glm::vec3>>("direction", i) = this->buffers.scatter_field.get_pcas()[i].getPrincipalDirection();
 		scatter_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel>("spectrum", i).normalize();
 
@@ -54,6 +60,19 @@ void RadiationSimulation::G4RadiationFieldDetector::evaluate_field()
 		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<glm::vec3>>("direction", i) = this->buffers.xray_beam.get_pcas()[i].getPrincipalDirection();
 		xray_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel>("spectrum", i).normalize();
 	}
+
+	if (max_hits == 0.f)
+		G4cout << "WARNING: No voxel was hit by any particle. This is an indication of an unmatching tracking volume size or errorneous scene definitions." << G4endl;
+
+	if (accumulated_hits_per_particle < 1.f)
+		G4cout << "WARNING: On average there wasn't at least one voxel hit per particle. This is an indication of an unmatching tracking volume size or errorneous scene definitions. Average hits per voxel was: " << accumulated_hits_per_particle << G4endl;
+
+	for (size_t x = 0; x < this->field->get_voxel_counts().x; x++)
+		for (size_t y = 0; y < this->field->get_voxel_counts().y; y++)
+			for (size_t z = 0; z < this->field->get_voxel_counts().z; z++) {
+				scatter_buffer->get_voxel<RadFiled3D::ScalarVoxel<float>>("error", x, y, z) = this->buffers.scatter_field.get_statistical_error(primary_particles, x, y, z);
+				xray_buffer->get_voxel<RadFiled3D::ScalarVoxel<float>>("error", x, y, z) = this->buffers.xray_beam.get_statistical_error(primary_particles, x, y, z);
+			}
 }
 
 std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::G4RadiationFieldDetector::get_normalized_field_copy()

@@ -21,6 +21,9 @@ namespace RadiationSimulation {
 		std::shared_ptr<G4PVPlacement> physical;
 	public:
 		G4Mesh(std::shared_ptr<Mesh> mesh, double length_unit = 1.0);
+		~G4Mesh() {
+			G4cout << "G4Mesh destroyed" << G4endl;
+		}
 		std::shared_ptr<Mesh> getMesh() const { return this->mesh; }
 		void setMaterial(G4Material* material);
 		void place(G4LogicalVolume* parent);
