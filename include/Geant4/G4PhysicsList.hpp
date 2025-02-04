@@ -12,33 +12,54 @@
 #include "G4Neutron.hh"
 #include "G4Proton.hh"
 #include "G4EmLowEPPhysics.hh"
+#include "G4EmExtraPhysics.hh"
+#include "QGSP_BIC.hh"
 
 
-class MedicalPhysicsList : public QGSP_BIC_HP {
+class MedicalPhysicsList : public QGSP_BIC_HP { // QGSP_BIC
 protected:
     G4EmStandardPhysics_option4* emPhysicsList;
+	/*G4EmExtraPhysics* emExtraPhysics;
+	G4EmLowEPPhysics* emLowEPPhysics;*/
 public:
     MedicalPhysicsList()
         :   emPhysicsList(new G4EmStandardPhysics_option4()),
-            QGSP_BIC_HP()
+		    /*emExtraPhysics(new G4EmExtraPhysics()),
+		    emLowEPPhysics(new G4EmLowEPPhysics()),*/
+            QGSP_BIC_HP() // QGSP_BIC
     {
         size_t i = 0;
         bool found_g4_phys_list = false;
+		bool found_extra_phys = false;
+		bool found_low_ep_phys = false;
         while(true) {
             try {
                 auto p = this->GetPhysics(i);
                 if (p == NULL || p == nullptr) break;
                 if (std::string("G4EmStandard_opt4") == p->GetPhysicsName()) {
                     found_g4_phys_list = true;
-                    break;
                 }
+				if (std::string("G4EmExtraPhysics") == p->GetPhysicsName()) {
+					found_extra_phys = true;
+				}
+                if (std::string("G4EmLowEPPhysics") == p->GetPhysicsName()) {
+                    found_low_ep_phys = true;
+                }
+				if (found_g4_phys_list && found_extra_phys && found_low_ep_phys) break;
                 i++;
             } catch (std::exception& e) {
 				break;
 			}
 		}
         // Register electromagnetic physics
-        if (!found_g4_phys_list)
+        if (!found_g4_phys_list) {
             RegisterPhysics(this->emPhysicsList);
+        }
+        /*if (!found_extra_phys) {
+            RegisterPhysics(this->emExtraPhysics);
+        }
+		if (!found_low_ep_phys) {
+			RegisterPhysics(this->emLowEPPhysics);
+		}*/
     }
 };
