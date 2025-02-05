@@ -42,8 +42,8 @@ void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, f
 		),
 		RadFiled3D::Storage::FiledTypes::V1::RadiationFieldMetadataHeader::Software(
 			"RadField3D",
-			"DEV",
-			"https://gitlab1.ptb.de/fb6.3/allgemein/physiksimulation/promotion-lehner/radiationsimulationlibrary",
+			"1.0.0",
+			"https://github.com/Centrasis/RadField3DSimulation",
 			"HEAD"
 		)
 	);
