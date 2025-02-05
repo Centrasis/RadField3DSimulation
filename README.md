@@ -48,8 +48,6 @@ The parameters are the following:
 - *spectrum*: The path to a x-ray spectrum in .csv-format. The CSV-file should have the form column 1: Energy-Bin-Edge starting from 0eV and column 2: relative photon counts for this bin. The input distribution will be normalized to a integral of one.
 
 
-**WARNING**: Linetracting algorithm currently under experimental testing.
-
 ##### Geometry world description file
 The geometry description file contains the information how the meshes of the geometry file are nested inside eachother and which material each mesh volume has. Additionally, a transformation for each mesh can be supplied. The file shoud have the JSON-Format.
 Example:
