@@ -2,13 +2,15 @@ import subprocess
 import os
 import re
 import random
-from typing import List
+from typing import List, Union
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from rich import print
 import argparse
 import torch
 import json
 import shutil
+from typing import NamedTuple
+from logging import getLogger
 
 
 pattern_energy = re.compile(r"Set X-Ray source energy to: ([\de\+\-]+)eV")
@@ -17,30 +19,65 @@ pattern_loc = re.compile(r"Set X-Ray source location to \(([\+\-\d\.]+)\, ([\+\-
 pattern_voxel_and_particles = re.compile(r"Start simulating with voxel dimension: ([\d\.\+]+)m and an particle count of ([\d\.]+)")
 
 
-class Parameter:
-    def __init__(self, energy: int, source_distance: float, source_angle_alpha: int, source_angle_beta: int, source_opening_angle: float):
-        self.energy = energy
-        self.source_distance = source_distance
-        self.source_angle_alpha = source_angle_alpha
-        self.source_angle_beta = source_angle_beta
-        self.source_opening_angle = source_opening_angle
+class ParameterValue(NamedTuple):
+    name: str
+    value: any
+
+    @staticmethod
+    def from_json(json: dict) -> "ParameterValue":
+        name = json["name"]
+        assert isinstance(name, str), "Name must be a string"
+        name = name.lower()
+        assert name in Parameter.VALID_NAMES, f"Parameter name must be one of {Parameter.VALID_NAMES} not {name}"
+        return ParameterValue(
+            name=name,
+            value=json["value"]
+        )
+
+
+class Parameter(object):
+    VALID_NAMES = ["energy", "source_distance", "source_angle_alpha", "source_angle_beta", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim"]
+
+    def __init__(self, name: str, range: Union[tuple[int, int], tuple[float, float], list[any]]):
+        self.name = name.lower()
+        assert name in Parameter.VALID_NAMES, f"Parameter name must be one of {Parameter.VALID_NAMES} not {name}"
+        self.range = range
+        assert len(range) > 0, "Range must have at least one element"
+        self.is_range = len(range) == 2 and ((isinstance(range[0], int) and isinstance(range[1], int)) or (isinstance(range[0], float) and isinstance(range[1], float)))
+
+    def sample(self) -> any:
+        if self.is_range:
+            if isinstance(self.range[0], int):
+                return random.randint(self.range[0], self.range[1])
+            elif isinstance(self.range[0], float):
+                return random.uniform(self.range[0], self.range[1])
+            else:
+                raise Exception("Range must be either int or float")
+        else:
+            idx = random.randint(0, len(self.range) - 1)
+            return self.range[idx]
 
     @staticmethod
     def from_json(json: dict) -> "Parameter":
+        range = json["range"] if "range" in json else None
+        if range is None and "value" in json:
+            range = [json["value"]]
         return Parameter(
-            energy=json["energy"],
-            source_distance=json["source_distance"],
-            source_angle_alpha=json["source_angle_alpha"],
-            source_angle_beta=json["source_angle_beta"],
-            source_opening_angle=json["source_opening_angle"] if "source_opening_angle" in json else None
+            name=json["name"],
+            range=range
         )
+
+
+class FixedParameterValueSet(object):
+    def __init__(self, values: List[ParameterValue]):
+        self.values = values
 
 
 class ParameterSelector:
     def get_n_samples(self) -> int:
         pass
 
-    def __next__(self) -> Parameter:
+    def __next__(self) -> list[ParameterValue]:
         pass
 
     def __iter__(self):
@@ -49,63 +86,55 @@ class ParameterSelector:
     def __len__(self):
         return self.get_n_samples()
     
-    def __getitem__(self, item) -> Parameter:
+    def __getitem__(self, item) -> list[ParameterValue]:
         pass
 
     def get_max_energy(self) -> float:
         pass
 
-
-class ParameterSampler(ParameterSelector):
-    def __init__(self, energy_range: tuple[float, float], source_distance_range: tuple[float, float], source_angle_alpha_range: tuple[int, int], source_angle_beta_range: tuple[int, int], energy_resolution: float, source_opening_angle: tuple[float, float], n_samples: int):
-        self.energy_range = energy_range
-        self.source_distance_range = source_distance_range
-        self.source_angle_alpha_range = source_angle_alpha_range
-        self.source_angle_beta_range = source_angle_beta_range
-        self.n_samples = n_samples
-        self.energy_resolution = energy_resolution
-        self.source_opening_angle = source_opening_angle
-        self.idx = 0
-
-    def get_n_samples(self) -> int:
-        return self.n_samples
-    
-    def get_max_energy(self) -> float:
-        return self.energy_range[1]
-    
-    def __iter__(self):
-        self.idx = 0
-        return self
-    
-    def __next__(self) -> Parameter:
-        if self.idx >= self.n_samples:
-            raise StopIteration
-        self.idx += 1
-        return Parameter(
-            energy=self.energy_range[0] + ((random.randint(0, int(self.energy_resolution)) / self.energy_resolution) * (self.energy_range[1] - self.energy_range[0])),
-            source_distance=random.uniform(self.source_distance_range[0], self.source_distance_range[1]),
-            source_angle_alpha=random.randint(int(self.source_angle_alpha_range[0]), int(self.source_angle_alpha_range[1])),
-            source_angle_beta=random.randint(int(self.source_angle_beta_range[0]), int(self.source_angle_beta_range[1])),
-            source_opening_angle=random.uniform(self.source_opening_angle[0], self.source_opening_angle[1])
-        )
-
-    def __getitem__(self, item) -> Parameter:
-        self.idx = item
-        return next(self)
-    
 
 class ParameterSequence(ParameterSelector):
-    def __init__(self, parameters_file: str, default_source_opening_angle: float):
-        self.parameters: List[Parameter] = [
-            Parameter.from_json(elem)
-            for elem in json.load(open(parameters_file, "r"))
+    def __init__(self, parameters_file: str):
+        file_content = json.load(open(parameters_file, "r"))
+        assert "Metaparameters" in file_content, "Metaparameters must be defined in the sequence file"
+        assert "ParameterSets" in file_content, "ParameterSets must be defined in the sequence file"
+        self.parameter_sets: List[FixedParameterValueSet] = [
+            FixedParameterValueSet(
+                [
+                    ParameterValue.from_json(val)
+                    for val in pset
+                ]
+            )
+            for pset in file_content["ParameterSets"]
         ]
+        geometry_file = Parameter("geometry", [file_content["Metaparameters"]["GeometryFile"]]) if "GeometryFile" in file_content["Metaparameters"] else None
+        particles = Parameter("particles", [file_content["Metaparameters"]["Particles"]]) if "Particles" in file_content["Metaparameters"] else None
+        tracer_algo = Parameter("tracer_algorithm", [file_content["Metaparameters"]["TracerAlgorithm"]]) if "TracerAlgorithm" in file_content["Metaparameters"] else None
+        bin_count = Parameter("bin_count", [file_content["Metaparameters"]["BinCount"]]) if "BinCount" in file_content["Metaparameters"] else None
+        voxel_size = Parameter("voxel_size", [file_content["Metaparameters"]["VoxelSize"]]) if "VoxelSize" in file_content["Metaparameters"] else None
+        world_dim = Parameter("world_dim", [file_content["Metaparameters"]["WorldDim"]]) if "WorldDim" in file_content["Metaparameters"] else None
+
+        for i, pset in enumerate(self.parameter_sets):
+            all_names = [p.name for p in pset.values]
+            if not any([p.name == "geometry" for p in pset.values]) and geometry_file is not None:
+                pset.values.append(geometry_file)
+            if not any([p.name == "particles" for p in pset.values]) and particles is not None:
+                pset.values.append(particles)
+            if not any([p.name == "tracer_algorithm" for p in pset.values]) and tracer_algo is not None:
+                pset.values.append(tracer_algo)
+            if not any([p.name == "bin_count" for p in pset.values]) and bin_count is not None:
+                pset.values.append(bin_count)
+            if not any([p.name == "voxel_size" for p in pset.values]) and voxel_size is not None:
+                pset.values.append(voxel_size)
+            if not any([p.name == "world_dim" for p in pset.values]) and world_dim is not None:
+                pset.values.append(world_dim)
+            assert len(set(all_names)) == len(all_names), f"Parameter names must be unique, found duplicates in set {i}"
+
         self.idx = 0
-        self.default_source_opening_angle = default_source_opening_angle
-        self.max_energy = max([p.energy for p in self.parameters])
-    
+        self.max_energy = file_content["Metaparameters"]["MaxEnergy"]
+
     def get_n_samples(self) -> int:
-        return len(self.parameters)
+        return len(self.parameter_sets)
     
     def get_max_energy(self) -> float:
         return self.max_energy
@@ -114,20 +143,90 @@ class ParameterSequence(ParameterSelector):
         self.idx = 0
         return self
     
-    def __next__(self) -> Parameter:
-        if self.idx >= len(self.parameters):
+    def __next__(self) -> list[ParameterValue]:
+        if self.idx >= len(self.parameter_sets):
             raise StopIteration
         self.idx += 1
-        element = self.parameters[self.idx - 1]
-        if "source_opening_angle" not in element.__dict__ or element.source_opening_angle is None:
-            element["source_opening_angle"] = self.default_source_opening_angle
-        return element
+        pset = self.parameter_sets[self.idx - 1]
+        return pset.values
     
-    def __getitem__(self, item) -> Parameter:
-        element: Parameter = self.parameters[item]
-        if "source_opening_angle" not in element.__dict__ or element.source_opening_angle is None:
-            element.source_opening_angle = self.default_source_opening_angle
-        return element
+    def __getitem__(self, item) -> list[ParameterValue]:
+        self.idx = item
+        return next(self)
+
+
+class ParameterizedSampler(ParameterSelector):
+    def __init__(self, parameters: List[Parameter], n_samples: int, max_energy: float):
+        self.parameters = parameters
+        self.n_samples = n_samples
+        self.max_energy = max_energy
+        self.idx = 0
+
+    @staticmethod
+    def load_from(definition_file: str):
+        file_content = json.load(open(definition_file, "r"))
+        assert "Metaparameters" in file_content, "Metaparameters must be defined in the dataset definition file"
+        max_energy = file_content["Metaparameters"]["MaxEnergy"]
+        assert "Parameters" in file_content, "Parameters must be defined in the dataset definition file"
+        parameters: List[Parameter] = [
+            Parameter.from_json(p)
+            for p in file_content["Parameters"]
+        ]
+        
+        geometry_file = Parameter("geometry", [file_content["Metaparameters"]["GeometryFile"]]) if "GeometryFile" in file_content["Metaparameters"] else None
+        particles = Parameter("particles", [file_content["Metaparameters"]["Particles"]]) if "Particles" in file_content["Metaparameters"] else None
+        tracer_algo = Parameter("tracer_algorithm", [file_content["Metaparameters"]["TracerAlgorithm"]]) if "TracerAlgorithm" in file_content["Metaparameters"] else None
+        bin_count = Parameter("bin_count", [file_content["Metaparameters"]["BinCount"]]) if "BinCount" in file_content["Metaparameters"] else None
+        voxel_size = Parameter("voxel_size", [file_content["Metaparameters"]["VoxelSize"]]) if "VoxelSize" in file_content["Metaparameters"] else None
+        world_dim = Parameter("world_dim", [file_content["Metaparameters"]["WorldDim"]]) if "WorldDim" in file_content["Metaparameters"] else None
+        if not any([p.name == "geometry" for p in parameters]) and geometry_file is not None:
+            parameters.append(geometry_file)
+        if not any([p.name == "particles" for p in parameters]) and particles is not None:
+            parameters.append(particles)
+        if not any([p.name == "tracer_algorithm" for p in parameters]) and tracer_algo is not None:
+            parameters.append(tracer_algo)
+        if not any([p.name == "bin_count" for p in parameters]) and bin_count is not None:
+            parameters.append(bin_count)
+        if not any([p.name == "voxel_size" for p in parameters]) and voxel_size is not None:
+            parameters.append(voxel_size)
+        if not any([p.name == "world_dim" for p in parameters]) and world_dim is not None:
+            parameters.append(world_dim)
+
+        all_names = [p.name for p in parameters]
+        assert len(set(all_names)) == len(all_names), "Parameter names must be unique"
+        n_samples = file_content["Metaparameters"]["nSamples"]
+        assert isinstance(n_samples, int), "nSamples must be an integer"
+        return ParameterizedSampler(
+            parameters=parameters,
+            n_samples=n_samples,
+            max_energy=max_energy
+        )
+
+    def get_n_samples(self) -> int:
+        return self.n_samples
+    
+    def get_max_energy(self) -> float:
+        return self.max_energy
+    
+    def __iter__(self):
+        self.idx = 0
+        return self
+    
+    def __next__(self) -> list[ParameterValue]:
+        if self.idx >= self.n_samples:
+            raise StopIteration
+        self.idx += 1
+        return [
+            ParameterValue(
+                name=p.name,
+                value=p.sample()
+            )
+            for p in self.parameters
+        ]
+    
+    def __getitem__(self, item) -> list[ParameterValue]:
+        self.idx = item
+        return next(self)
 
 
 def write_spectum_file(src_file: str, out_path: str):
@@ -168,6 +267,7 @@ if __name__ == "__main__":
     parser.add_argument("--sequence_file", default=None, type=str, nargs=1, required=False, help="Path to a sequence file that should be used. (Disables energy and angle sampling)")
     parser.add_argument("--tracer_algorithm", default="sampling", type=str, nargs=1, required=False, help="Tracer algorithm to use (sampling, bresenham, linetracing)")
     parser.add_argument("--cluster_node_partition", default=None, type=int, nargs=2, required=False, help="Partition the node into a cluster of nodes. (Number of nodes, Node ID)")
+    parser.add_argument("--dataset_definition", default=None, type=str, nargs=1, required=False, help="Path to a dataset definition file that should be used. (Overrides energy/angle7/source_distance/source_shape/source_opening_angle sampling, energy_resolution, ...)")
 
     args = parser.parse_args()
 
@@ -191,12 +291,19 @@ if __name__ == "__main__":
     should_sample_angles = source_angles is None
     source_opening_angle = None
     tracer_algorithm: str = args.tracer_algorithm[0] if isinstance(args.tracer_algorithm, list) else args.tracer_algorithm
+
     if "source_opening_angle" in args and args.source_opening_angle is not None:
         source_opening_angle: str = ' '.join(args.source_opening_angle) if isinstance(args.source_opening_angle, list) else args.source_opening_angle
+
     simulation_energy_resolution: float = int(Emax / args.bin_count) if args.bin_count is not None else 1e+3
+
     sequence_file: str = None
     if "sequence_file" in args and args.sequence_file is not None:
         sequence_file: str = args.sequence_file[0] if isinstance(args.sequence_file, list) else args.sequence_file
+
+    dataset_definition_file: str = None
+    if "dataset_definition" in args and args.dataset_definition is not None:
+        dataset_definition_file: str = args.dataset_definition[0] if isinstance(args.dataset_definition, list) else args.dataset_definition
 
     cluster_node_partition = None
     if "cluster_node_partition" in args and args.cluster_node_partition is not None:
@@ -225,16 +332,35 @@ if __name__ == "__main__":
     else:
         raise Exception("Opening angle must be a string, list, tuple or float")
 
-    parameters: ParameterSelector = ParameterSampler(
-        energy_range=energy_range,
-        source_distance_range=(source_distance, source_distance),
-        source_angle_alpha_range=(-90, 90) if should_sample_angles else (source_angles[0], source_angles[0]),
-        source_angle_beta_range=(-45, 45) if should_sample_angles else (source_angles[1], source_angles[1]),
-        n_samples=n_sample_fields,
-        energy_resolution=energy_resolution,
-        source_opening_angle=opening_angle
-    ) if sequence_file is None else ParameterSequence(sequence_file, default_source_opening_angle=source_opening_angle)
-
+    parameters: ParameterSelector = None
+    
+    if dataset_definition_file is not None and sequence_file is not None:
+        raise Exception("Cannot use dataset definition and sequence file at the same time")
+    
+    if sequence_file is not None:
+        parameters = ParameterSequence(sequence_file)
+    
+    if dataset_definition_file is not None:
+        parameters = ParameterizedSampler.load_from(dataset_definition_file)
+    
+    if parameters is None:
+        params = [
+            Parameter("energy", energy_range),
+            Parameter("source_distance", (source_distance, source_distance)),
+            Parameter("source_angle_alpha", (-90, 90) if should_sample_angles else (source_angles[0], source_angles[0])),
+            Parameter("source_angle_beta", (-45, 45) if should_sample_angles else (source_angles[1], source_angles[1])),
+            Parameter("source_opening_angle", [opening_angle]),
+            Parameter("source_shape", [source_shape]),
+            Parameter("geometry", [geometry_file] if geometry_file != '' else []),
+            Parameter("tracer_algorithm", [tracer_algorithm]),
+            Parameter("bin_count", [simulation_energy_resolution]),
+            Parameter("voxel_size", [voxel_size]),
+            Parameter("particles", [particles]),
+            Parameter("world_dim", [world_size])
+        ]
+        if spectra_path is not None:
+            params.append(Parameter("source_spectra", [spectra_path]))
+        parameters = ParameterizedSampler(params, n_sample_fields, Emax)
     n_sample_fields = len(parameters)
 
 
@@ -251,12 +377,10 @@ if __name__ == "__main__":
     if cluster_node_partition is not None:
         print(f"Partitioning in cluster mode as node {cluster_node_partition[1]} of {cluster_node_partition[0]}")
 
-    if Emax is None:
-        Emax = parameters.get_max_energy()
-
-    parameters = [p for p in parameters]
+    Emax = parameters.get_max_energy()
 
     if cluster_node_partition is not None:
+        parameters = [p for p in parameters]
         min_idx = cluster_node_partition[1] * (len(parameters) // cluster_node_partition[0])
         max_idx = (cluster_node_partition[1] + 1) * (len(parameters) // cluster_node_partition[0])
         max_idx = min(max_idx, len(parameters))
@@ -266,10 +390,39 @@ if __name__ == "__main__":
 
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         sampling_task = progress.add_task("Calculating field...", total=len(parameters))
-        for sample in parameters:
-            energy = sample.energy
-            alpha = sample.source_angle_alpha
-            beta = sample.source_angle_beta
+        for nb_sample, sample_parameters in enumerate(parameters):
+            spectra_path = None
+            for param in sample_parameters:
+                if param.name == "energy":
+                    energy = param.value
+                elif param.name == "source_distance":
+                    source_distance = param.value
+                elif param.name == "source_angle_alpha":
+                    alpha = param.value
+                elif param.name == "source_angle_beta":
+                    beta = param.value
+                elif param.name == "source_opening_angle":
+                    source_opening_angle = param.value
+                elif param.name == "source_shape":
+                    source_shape = param.value
+                elif param.name == "source_spectra":
+                    spectra_path = param.value
+                elif param.name == "geometry":
+                    geometry_file = param.value
+                    if not os.path.isabs(geometry_file):
+                        geometry_file = os.path.join(os.getcwd(), geometry_file)
+                elif param.name == "tracer_algorithm":
+                    tracer_algorithm = param.value
+                elif param.name == "bin_count":
+                    simulation_energy_resolution = int(Emax / param.value)
+                elif param.name == "voxel_size":
+                    voxel_size = param.value
+                elif param.name == "particles":
+                    particles = param.value
+                elif param.name == "world_dim":
+                    world_size = param.value
+                else:
+                    raise Exception(f"Parameter {param.name} was not recognized")   
 
             spec_args = []
             if spectra_path is not None:
@@ -305,7 +458,8 @@ if __name__ == "__main__":
                     "--spectrum", os.path.normpath(spec_csv_file)
                 ]
 
-            out_name = f"RF_{'{:1.1f}'.format(energy/1000)}keV_{alpha}_{beta}_{os.path.basename(os.path.splitext(geometry_file)[0])}.rf3"
+            #out_name = f"RF_{'{:1.1f}'.format(energy/1000)}keV_{alpha}_{beta}_{os.path.basename(os.path.splitext(geometry_file)[0])}.rf3"
+            out_name = f"{nb_sample:04d}.rf3"
             progress.update(sampling_task, description=f"Calculating field: {out_name}...")
             out_path = os.path.normpath(os.path.join(out_dir, "fields", out_name))
 
@@ -321,13 +475,13 @@ if __name__ == "__main__":
                     "--max-energy", str(Emax),
                     "--source-alpha", str(alpha),
                     "--source-beta", str(beta),
-                    "--source-distance", str(sample.source_distance),
+                    "--source-distance", str(source_distance),
                     "--world-dim", f"{world_size[0]} {world_size[1]} {world_size[2]}",
                     "--particles", str(particles),
                     "--source-shape", source_shape,
                     "--voxel-dim", str(voxel_size),
                     "--energy-resolution", str(simulation_energy_resolution),
-                    "--source-opening-angle", f"{sample.source_opening_angle}",
+                    "--source-opening-angle", f"{source_opening_angle}",
                     "--tracing-algorithm", f"{tracer_algorithm}"
                 ] + spec_args + (["--geom", geometry_file] if geometry_file != '' else []),
                 stdout=subprocess.PIPE,
@@ -336,6 +490,7 @@ if __name__ == "__main__":
             )
             err = out.stderr
             stdout = out.stdout.decode()
+            ret_code = out.returncode
 
             progress.update(sampling_task, advance=1)
 

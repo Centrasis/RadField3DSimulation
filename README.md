@@ -129,26 +129,93 @@ Parameters:
 - *tracer_algorithm*: The used algorithm to find intersected voxels for a given particle path. Can be one of `sampling`, `bresenham` or `linetracing`.
 - *sequence_file*: Optional: Allows to load some of the options sequentially from a JSON-File to automate specific dataset configurations under specified conditions.
 - *cluster_node_partition*: Optional. Only used when `sequence_file` is set. Allows to determine which  section of a sequence file should be processed by this process. Useful when multiple instances are run on a cluster. Specify in the form of: "m" "n" where n is the current node ID ([0..(m-1)]) and m is the total node count.
-
-
-**WARNING**: Linetracting algorithm currently under experimental testing.
+- *dataset_definition*: Provide the path to a JSON file containing a whole dataset generation definition. This overrdides all other parameters except for `--dest`, `--binary` and `--cluster_node_partition`. An Example can be found below.
 
 ##### Example of a sequence file
 ```json
-[
-    {
-        "energy": 100e+3,
-        "source_distance": 2.5,
-        "source_angle_beta": 0.0,
-        "source_angle_alpha": -90.0,
-        "source_opening_angle": 5.0
+{
+    "Metaparameters": {
+        "MaxEnergy": 1.5e+4,
+        "GeometryFile": "<path-to-a-geometry-file.obj>",
+        "Particles": 200000,
+        "TracerAlgorithm": "linetracing",
+        "BinCount": 32,
+        "WorldDim": [1, 1, 1],
+        "VoxelSize": 0.02
     },
-    {
-        "energy": 100e+3,
-        "source_distance": 2.5,
-        "source_angle_beta": 0.0,
-        "source_angle_alpha": -80.0,
-        "source_opening_angle": 5.0
-    }
-]
+    "ParameterSets": [
+        [
+            {
+                "name": "source_distance",
+                "value": 2.5
+            },
+            {
+                "name": "source_angle_alpha",
+                "value": 0
+            },
+        ],
+        [
+            {
+                "name": "source_distance",
+                "value": 2.0
+            },
+            {
+                "name": "source_angle_alpha",
+                "value": 0
+            },
+        ],
+        [
+            {
+                "name": "source_distance",
+                "value": 1.5
+            },
+            {
+                "name": "source_angle_alpha",
+                "value": 0
+            },
+        ]
+    ]
+}
+```
+
+##### Example of a dataset definition file
+```json
+{
+    "Metaparameters": {
+        "MaxEnergy": 1.5e+4,
+        "GeometryFile": "<path-to-a-geometry-file.obj>",
+        "Particles": 200000,
+        "TracerAlgorithm": "linetracing",
+        "BinCount": 32,
+        "WorldDim": [1, 1, 1],
+        "VoxelSize": 0.02,
+        "nSamples": 500
+    },
+    "Parameters": [
+        {
+            "name": "source_distance",
+            "value": 2.5
+        },
+        {
+            "name": "source_angle_alpha",
+            "range": [-90, 90]
+        },
+        {
+            "name": "source_angle_beta",
+            "value": 0
+        },
+        {
+            "name": "source_opening_angle",
+            "value": 5
+        },
+        {
+            "name": "source_shape",
+            "value": "cone"
+        },
+        {
+            "name": "source_spectra",
+            "value": "<path-to-a-spectra-file-or-folder>.spectra/.csv"
+        }
+    ]
+}
 ```
