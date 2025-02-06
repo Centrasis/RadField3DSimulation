@@ -184,6 +184,7 @@ void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4S
 	if (event_context_itr == this->event_contexts.end()) {
 		std::unique_lock lock(this->global_detector_mutex);
 
+		// Limit max size of event_contexts. This will lead to constant memory consumption. Original implementation lead to out-of-memory exceptions on very long runs.
 		if (this->event_contexts.size() > this->max_event_contexts && this->max_event_contexts > this->min_event_contexts) {
 			const size_t min_event_id = (event_id > this->min_event_contexts) ? event_id - this->min_event_contexts : this->min_event_contexts;
 			for (auto itr = this->event_contexts.begin(); itr != this->event_contexts.end();) {
