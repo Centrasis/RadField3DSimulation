@@ -164,7 +164,7 @@ Parameters:
         },
         {
             "name": "source_angle_beta",
-            "value": 0                  // This is a fixed values that never changes
+            "value": 0                  // This is a fixed value that never changes
         },
         {
             "name": "source_opening_angle",
