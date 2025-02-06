@@ -38,12 +38,15 @@ class ParameterValue(NamedTuple):
 class Parameter(object):
     VALID_NAMES = ["energy", "source_distance", "source_angle_alpha", "source_angle_beta", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim"]
 
-    def __init__(self, name: str, range: Union[tuple[int, int], tuple[float, float], list[any]]):
+    def __init__(self, name: str, range: Union[tuple[int, int], tuple[float, float], list[any]], is_range: bool = None):
         self.name = name.lower()
         assert name in Parameter.VALID_NAMES, f"Parameter name must be one of {Parameter.VALID_NAMES} not {name}"
         self.range = range
         assert len(range) > 0, "Range must have at least one element"
-        self.is_range = len(range) == 2 and ((isinstance(range[0], int) and isinstance(range[1], int)) or (isinstance(range[0], float) and isinstance(range[1], float)))
+        if is_range is None:
+            self.is_range = len(range) == 2 and ((isinstance(range[0], int) and isinstance(range[1], int)) or (isinstance(range[0], float) and isinstance(range[1], float)))
+        else:
+            self.is_range = is_range
 
     def sample(self) -> any:
         if self.is_range:
@@ -60,11 +63,17 @@ class Parameter(object):
     @staticmethod
     def from_json(json: dict) -> "Parameter":
         range = json["range"] if "range" in json else None
+        is_range = range is not None
         if range is None and "value" in json:
             range = [json["value"]]
+        if range is None and "values" in json:
+            range = json["values"]
+        assert range is not None, "Range must be defined in the json object"
+
         return Parameter(
             name=json["name"],
-            range=range
+            range=range,
+            is_range=is_range
         )
 
 

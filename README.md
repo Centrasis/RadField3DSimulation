@@ -1,12 +1,23 @@
 # RadField3D: A generator for spatially resolved x-ray radiation fields using Geant4
 This repository contains the code of the monte-carlo simulation application presented by our [Paper](https://arxiv.org/abs/2412.13852) that we call RadField3D. This application aims to simulate a concentric x-ray beam, that can be rotated on a sphere with a certain radius around the center of the irradiated scene. RadField3D stores the radiation fields spatially resolved in an efficiently machine readable and interpretable file format that we refer to as RadFiled3D. The code of that file format is located [here](https://github.com/Centrasis/RadFiled3D). Thanks to the Python API and pyTorch Integration, this application and RadFiled3D is suited to be used in machine learning. Therefore, RadFiled3D can be directly installed from PyPi using pip.
 
+## Table of Contents
+- [Getting Started](#getting-started)
+  - [Installing from Source](#installing-from-source)
+    - [Prerequisites](#prerequisites)
+  - [Generating Datasets](#generating-datasets)
+    - [Directly using RadField3D](#directly-using-radfield3d)
+      - [Geometry world description file](#geometry-world-description-file)
+    - [Using the DatasetGenerator](#using-the-datasetgenerator)
+      - [Example of a dataset definition file](#example-of-a-dataset-definition-file)
+      - [Example of a sequence file](#example-of-a-sequence-file)
+
 ## Getting Started
 ### Installing from Source
 You can build and install this application from source by using CMake and a C++ compiler. The CMake Project will be built automatically, but will take some time.
 
 #### Prerequisites
-- C++ Compiler
+- C++20 Compiler
   - g++ or clang for Linux
   - MSVC or clang from Visual Studio 2022 for Windows
 - CMake >= 3.30
@@ -129,6 +140,48 @@ Parameters:
 - *cluster_node_partition*: Optional. Only used when `sequence_file` is set. Allows to determine which  section of a sequence file should be processed by this process. Useful when multiple instances are run on a cluster. Specify in the form of: "m" "n" where n is the current node ID ([0..(m-1)]) and m is the total node count.
 - *dataset_definition*: Provide the path to a JSON file containing a whole dataset generation definition. This overrdides all other parameters except for `--dest`, `--binary` and `--cluster_node_partition`. An Example can be found below.
 
+##### Example of a dataset definition file
+```json
+{
+    "Metaparameters": {
+        "MaxEnergy": 1.5e+4,
+        "GeometryFile": "<path-to-a-geometry-file.obj>",
+        "Particles": 200000,
+        "TracerAlgorithm": "linetracing",
+        "BinCount": 32,
+        "WorldDim": [1, 1, 1],
+        "VoxelSize": 0.02,
+        "nSamples": 500
+    },
+    "Parameters": [
+        {
+            "name": "source_distance",
+            "values": [2.5, 2.0, 1.5]   // This is a list to sample randomly from
+        },
+        {
+            "name": "source_angle_alpha",
+            "range": [-90, 90]          // This is a range to sample uniform within
+        },
+        {
+            "name": "source_angle_beta",
+            "value": 0                  // This is a fixed values that never changes
+        },
+        {
+            "name": "source_opening_angle",
+            "values": 5
+        },
+        {
+            "name": "source_shape",
+            "value": "cone"
+        },
+        {
+            "name": "source_spectra",
+            "value": "<path-to-a-spectra-file-or-folder>.spectra/.csv"
+        }
+    ]
+}
+```
+
 ##### Example of a sequence file
 ```json
 {
@@ -172,48 +225,6 @@ Parameters:
                 "value": 0
             },
         ]
-    ]
-}
-```
-
-##### Example of a dataset definition file
-```json
-{
-    "Metaparameters": {
-        "MaxEnergy": 1.5e+4,
-        "GeometryFile": "<path-to-a-geometry-file.obj>",
-        "Particles": 200000,
-        "TracerAlgorithm": "linetracing",
-        "BinCount": 32,
-        "WorldDim": [1, 1, 1],
-        "VoxelSize": 0.02,
-        "nSamples": 500
-    },
-    "Parameters": [
-        {
-            "name": "source_distance",
-            "value": 2.5
-        },
-        {
-            "name": "source_angle_alpha",
-            "range": [-90, 90]
-        },
-        {
-            "name": "source_angle_beta",
-            "value": 0
-        },
-        {
-            "name": "source_opening_angle",
-            "value": 5
-        },
-        {
-            "name": "source_shape",
-            "value": "cone"
-        },
-        {
-            "name": "source_spectra",
-            "value": "<path-to-a-spectra-file-or-folder>.spectra/.csv"
-        }
     ]
 }
 ```
