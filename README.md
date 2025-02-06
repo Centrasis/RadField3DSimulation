@@ -174,7 +174,7 @@ Parameters:
         },
         {
             "name": "source_opening_angle",
-            "values": 5
+            "value": 5
         },
         {
             "name": "source_shape",
