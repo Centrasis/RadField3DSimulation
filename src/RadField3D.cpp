@@ -231,12 +231,18 @@ int main(int argc, char* argv[]) {
 			continue;
 		}
 		if (arg == "--world-dim") {
-			std::stringstream ssin(value);
-			float x, y, z;
-			ssin >> x;
-			ssin >> y;
-			ssin >> z;
-			world_dim = glm::vec3(x, y, z);
+			try {
+				std::stringstream ssin(value);
+				float x, y, z;
+				ssin >> x;
+				ssin >> y;
+				ssin >> z;
+				world_dim = glm::vec3(x, y, z);
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for world dimension: " << value << G4endl;
+				throw e;
+			}
 			continue;
 		}
 		if (arg == "--source-distance") {
