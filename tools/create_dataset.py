@@ -388,6 +388,13 @@ if __name__ == "__main__":
 
     Emax = parameters.get_max_energy()
 
+    preexisting_samples = [f for f in os.listdir(os.path.join(out_dir, "fields")) if f.endswith(".rf3")] if os.path.exists(os.path.join(out_dir, "fields")) else []
+    try:
+        preexisting_samples = [int(f.removesuffix(".rf3")) for f in preexisting_samples]
+    except:
+        getLogger().warning("Could not parse preexisting samples! Was not a standard dataset naming convention.")
+    preexisting_samples_max_nb = max(preexisting_samples) if len(preexisting_samples) > 0 else 0
+
     if cluster_node_partition is not None:
         parameters = [p for p in parameters]
         min_idx = cluster_node_partition[1] * (len(parameters) // cluster_node_partition[0])
@@ -396,11 +403,13 @@ if __name__ == "__main__":
         if cluster_node_partition[1] + 1 >= cluster_node_partition[0]:
             max_idx = len(parameters)
         parameters = parameters[min_idx:max_idx]
+        preexisting_samples_max_nb += min_idx
 
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         sampling_task = progress.add_task("Calculating field...", total=len(parameters))
         for nb_sample, sample_parameters in enumerate(parameters):
             spectra_path = None
+            nb_sample += preexisting_samples_max_nb
             for param in sample_parameters:
                 if param.name == "energy":
                     energy = param.value
