@@ -153,7 +153,7 @@ int main(int argc, char* argv[]) {
 			else if (value == "linetracing")
 				tracing_algorithm = RadFiled3D::GridTracerAlgorithm::LINETRACING;
 			else {
-				G4cout << "Unknown tracing algorithm: " << value << ". Aborting..." << G4endl;
+				G4cerr << "Unknown tracing algorithm: " << value << ". Aborting..." << G4endl;
 				return -1;
 			}
 			continue;
@@ -165,33 +165,69 @@ int main(int argc, char* argv[]) {
 		}
 		if (arg == "--source-opening-angle") {
 			if (source_shape == "cone") {
-				source_opening_angle.x = std::stod(value);
+				try {
+					source_opening_angle.x = std::stod(value);
+				}
+				catch (std::exception& e) {
+					G4cerr << "Invalid argument for source opening angle: " << value << G4endl;
+					throw e;
+				}
 				continue;
 			}
 			if (source_shape == "rectangle" || source_shape == "ellipsoid") {
-				std::stringstream ssin(value);
-				float x, y;
-				ssin >> x;
-				ssin >> y;
-				source_opening_angle = glm::vec3(x, y, 0.f);
+				try {
+					std::stringstream ssin(value);
+					float x, y;
+					ssin >> x;
+					ssin >> y;
+					source_opening_angle = glm::vec3(x, y, 0.f);
+				}
+				catch (std::exception& e) {
+					G4cerr << "Invalid argument for source opening angle: " << value << G4endl;
+					throw e;
+				}
 				continue;
 			}
 			continue;
 		}
 		if (arg == "--particles") {
-			particle_count = static_cast<size_t>(std::stof(value));
+			try {
+				particle_count = static_cast<size_t>(std::stof(value));
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for particle count: " << value << G4endl;
+				throw e;
+			}
 			continue;
 		}
 		if (arg == "--source-alpha") {
-			source_angle_alpha = std::stof(value);
+			try {
+				source_angle_alpha = std::stof(value);
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for source alpha: " << value << G4endl;
+				throw e;
+			}
 			continue;
 		}
 		if (arg == "--source-beta") {
-			source_angle_beta = std::stof(value);
+			try {
+				source_angle_beta = std::stof(value);
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for source beta: " << value << G4endl;
+				throw e;
+			}
 			continue;
 		}
 		if (arg == "--voxel-dim") {
-			voxel_dim = std::stof(value);
+			try {
+				voxel_dim = std::stof(value);
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for voxel dimension: " << value << G4endl;
+				throw e;
+			}
 			continue;
 		}
 		if (arg == "--world-dim") {
@@ -204,11 +240,23 @@ int main(int argc, char* argv[]) {
 			continue;
 		}
 		if (arg == "--source-distance") {
-			source_distance = std::stof(value);
+			try {
+				source_distance = std::stof(value);
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for source distance: " << value << G4endl;
+				throw e;
+			}
 			continue;
 		}
 		if (arg == "--energy-resolution") {
-			energy_resolution = std::stof(value);
+			try {
+				energy_resolution = std::stof(value);
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for energy resolution: " << value << G4endl;
+				throw e;
+			}
 			continue;
 		}
 		if (arg == "--gui") {
