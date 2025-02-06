@@ -189,6 +189,9 @@ namespace RadiationSimulation {
 		};
 
 		std::map<size_t, EventContext> event_contexts;
+		size_t tracked_events_counter;
+		size_t max_event_contexts = 500000;
+		size_t min_event_contexts =  10000;
 		
 		G4Material* air_material = NULL;
 		const float statistical_error_threshold = 0.1f;
@@ -219,7 +222,7 @@ namespace RadiationSimulation {
 
 		inline size_t get_primary_particle_count() const { return this->primary_particle_count; }
 		inline size_t get_primary_particles_tracked() const { 
-			return this->event_contexts.size();
+			return this->tracked_events_counter;
 		}
 		virtual float get_statistical_error(size_t primary_particle_count = 0) override;
 		void register_on_new_particle(std::function<void(size_t, const G4Step*)> callback);

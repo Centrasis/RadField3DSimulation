@@ -36,7 +36,7 @@ static std::string AIR_NAME = "G4_AIR";
 
 void RadiationSimulation::G4RadiationFieldDetector::evaluate_field()
 {
-	const size_t primary_particles = this->event_contexts.size();
+	const size_t primary_particles = this->tracked_events_counter;
 	// First calculate the statistical error on the non-normalized energy
 	this->field->get_channel("scatter_field")->set_statistical_error("spectrum", this->buffers.scatter_field.get_overall_statistical_error_estimate(primary_particles));
 	this->field->get_channel("xray_beam")->set_statistical_error("spectrum", this->buffers.xray_beam.get_overall_statistical_error_estimate(primary_particles));
@@ -77,7 +77,7 @@ void RadiationSimulation::G4RadiationFieldDetector::evaluate_field()
 
 std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::G4RadiationFieldDetector::get_normalized_field_copy()
 {
-	const size_t primary_particles = this->event_contexts.size();
+	const size_t primary_particles = this->tracked_events_counter;
 	std::shared_ptr<RadFiled3D::CartesianRadiationField> copy = std::dynamic_pointer_cast<RadFiled3D::CartesianRadiationField>(this->field->copy());
 
 	// First calculate the statistical error on the non-normalized energy
@@ -136,6 +136,7 @@ RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const gl
 	  G4UserSteppingAction()
 {
 	this->define_grid_tracer<RadFiled3D::SamplingGridTracer>();
+	this->tracked_events_counter = 0;
 }
 
 void RadiationSimulation::G4RadiationFieldDetector::SetUp()
@@ -182,11 +183,23 @@ void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4S
 	std::map<size_t, EventContext>::iterator event_context_itr = this->event_contexts.find(event_id);
 	if (event_context_itr == this->event_contexts.end()) {
 		std::unique_lock lock(this->global_detector_mutex);
+
+		if (this->event_contexts.size() > this->max_event_contexts && this->max_event_contexts > this->min_event_contexts) {
+			const size_t min_event_id = (event_id > this->min_event_contexts) ? event_id - this->min_event_contexts : this->min_event_contexts;
+			for (auto itr = this->event_contexts.begin(); itr != this->event_contexts.end();) {
+				if (itr->first < min_event_id)
+					itr = this->event_contexts.erase(itr);
+				else
+					++itr;
+			}
+		}
+
+		this->tracked_events_counter++;
 		this->event_contexts.insert({ event_id, EventContext() });
 		event_context_itr = this->event_contexts.find(event_id);
 		try {
 			for (auto& cb : this->new_particle_callbacks)
-				cb(this->event_contexts.size(), step);
+				cb(this->tracked_events_counter, step);
 		} catch(const std::exception& e) {
 			G4cout << "Error in new particle callback: " << e.what() << G4endl;
 		}
@@ -284,9 +297,9 @@ void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4S
 		}
 	}
 
-	if (this->statistical_error_threshold > 0.f && this->event_contexts.size() % 50000 == 0 && current_track_stage == TrackStage::SCATTER) {
+	if (this->statistical_error_threshold > 0.f && this->tracked_events_counter % 50000 == 0 && current_track_stage == TrackStage::SCATTER) {
 		// check if this was enough to complete the whole simulation
-		const float stat_error = this->get_statistical_error(this->event_contexts.size());
+		const float stat_error = this->get_statistical_error(this->tracked_events_counter);
 
 		if (stat_error < this->statistical_error_threshold) {
 			this->is_tracking = false;
