@@ -393,7 +393,7 @@ if __name__ == "__main__":
         preexisting_samples = [int(f.removesuffix(".rf3")) for f in preexisting_samples]
     except:
         getLogger().warning("Could not parse preexisting samples! Was not a standard dataset naming convention.")
-    preexisting_samples_max_nb = max(preexisting_samples) if len(preexisting_samples) > 0 else 0
+    preexisting_samples_max_nb = (max(preexisting_samples) + 1) if len(preexisting_samples) > 0 else 0
 
     if cluster_node_partition is not None:
         parameters = [p for p in parameters]
