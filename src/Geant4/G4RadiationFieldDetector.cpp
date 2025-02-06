@@ -154,6 +154,7 @@ void RadiationSimulation::G4RadiationFieldDetector::finalize(size_t particle_cou
 	if (this->event_contexts.size() > 0)
 		this->event_contexts.clear();
 	this->buffers.reset();
+	this->tracked_events_counter = 0;
 	this->is_tracking = true;
 }
 
