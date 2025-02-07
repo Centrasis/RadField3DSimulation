@@ -75,7 +75,7 @@ std::vector<std::shared_ptr<Mesh>> GeometryLoader::Load(const std::string& path)
     const aiScene* scene = aiImportFile(path.c_str(), aiProcessPreset_TargetRealtime_MaxQuality);
     if (!scene) {
         std::string error_msg = "Could not load file: " + path;
-        throw new std::runtime_error(error_msg.c_str());
+        throw std::runtime_error(error_msg.c_str());
     }
     std::map<std::string, std::shared_ptr<Mesh>> meshes;
     std::vector<std::shared_ptr<Mesh>> root_meshes;

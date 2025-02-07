@@ -190,8 +190,8 @@ namespace RadiationSimulation {
 
 		std::map<size_t, EventContext> event_contexts;
 		size_t tracked_events_counter;
-		size_t max_event_contexts = 500000;
-		size_t min_event_contexts =  10000;
+		size_t max_event_contexts = 100000;
+		size_t min_event_contexts = 20000;
 		
 		G4Material* air_material = NULL;
 		const float statistical_error_threshold = 0.1f;

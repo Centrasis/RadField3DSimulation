@@ -49,14 +49,14 @@ G4VPhysicalVolume* G4SceneConstructor::Construct()
 	//auto world_info = World::get_world_info();
 
 	if (this->max_world_extend.x < World::get_world_info()->dimensions.x * m || this->max_world_extend.y < World::get_world_info()->dimensions.y * m || this->max_world_extend.z < World::get_world_info()->dimensions.z * m) {
-		throw new std::runtime_error("Tracking volume is too big for the max world size!");
+		throw std::runtime_error("Tracking volume is too big for the max world size!");
 	}
 	
 	this->world_dim = G4ThreeVector(World::get_world_info()->dimensions.x * m, World::get_world_info()->dimensions.y * m, World::get_world_info()->dimensions.z * m);
 	G4Box* worldBox = new G4Box("World", this->max_world_extend.x / 2.0, this->max_world_extend.y / 2.0, this->max_world_extend.z / 2.0);
 	this->world_material = MaterialSolver::get_material(World::get_world_info()->material);
 	if (this->world_material == NULL)
-		throw new std::runtime_error("World Material could not be loaded!");
+		throw std::runtime_error("World Material could not be loaded!");
 
 	G4LogicalVolume* worldLog = new G4LogicalVolume(worldBox, world_material, "World");
 	G4Box* tracker_box = new G4Box("Tracker", world_dim.x() / 2.0, world_dim.y() / 2.0, world_dim.z() / 2.0);

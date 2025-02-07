@@ -240,7 +240,13 @@ class ParameterizedSampler(ParameterSelector):
 
 def write_spectum_file(src_file: str, out_path: str):
     if not os.path.exists(os.path.dirname(out_path)):
-        os.makedirs(os.path.dirname(out_path))
+        try:
+            os.makedirs(os.path.dirname(out_path))
+        except FileExistsError:
+            pass
+        except Exception as e:
+            getLogger().warning(f"Could not create directory {os.path.dirname(out_path)} for field {out_name} -> {e}")
+            raise e
 
     spectrum = torch.load(src_file, weights_only=True)
 
@@ -380,7 +386,13 @@ if __name__ == "__main__":
     if not os.path.isabs(binary_path):
         binary_path = os.path.join(os.getcwd(), binary_path)
     if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
+        try:
+            os.makedirs(out_dir)
+        except FileExistsError:
+            pass
+        except Exception as e:
+            getLogger().warning(f"Could not create directory {out_dir} -> {e}")
+            raise e
 
     print(f"Start calculating {n_sample_fields} fields for dataset!")
     if cluster_node_partition is not None:
@@ -482,7 +494,13 @@ if __name__ == "__main__":
             out_path = os.path.normpath(os.path.join(out_dir, "fields", out_name))
 
             if not os.path.exists(os.path.dirname(out_path)):
-                os.makedirs(os.path.dirname(out_path))
+                try:
+                    os.makedirs(os.path.dirname(out_path))
+                except FileExistsError:
+                    pass
+                except Exception as e:
+                    getLogger().warning(f"Could not create directory {os.path.dirname(out_path)} for field {out_name} -> {e}")
+                    raise e
 
             if not args.clean:
                 spec_args.append("--append")

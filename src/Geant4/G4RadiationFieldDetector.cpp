@@ -179,26 +179,21 @@ void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4S
 	if (this->air_material == NULL) {
 		std::unique_lock lock(this->global_detector_mutex);
 		if (this->air_material == NULL) {
-			G4NistManager* nist = G4NistManager::Instance();
-			this->air_material = nist->FindOrBuildMaterial(AIR_NAME);
+			this->air_material = G4NistManager::Instance()->FindOrBuildMaterial(AIR_NAME);
 		}
 	}
 
-	const long event_id = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
+	const size_t event_id = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
 
 	std::map<size_t, EventContext>::iterator event_context_itr = this->event_contexts.find(event_id);
 	if (event_context_itr == this->event_contexts.end()) {
 		std::unique_lock lock(this->global_detector_mutex);
 
-		// Limit max size of event_contexts. This will lead to constant memory consumption. Original implementation lead to out-of-memory exceptions on very long runs.
+		// Limit max size of event_contexts. This will lead to capped memory consumption. Original implementation lead to out-of-memory exceptions on very long runs.
 		if (this->event_contexts.size() > this->max_event_contexts && this->max_event_contexts > this->min_event_contexts) {
-			const size_t min_event_id = (event_id > this->min_event_contexts) ? event_id - this->min_event_contexts : this->min_event_contexts;
-			for (auto itr = this->event_contexts.begin(); itr != this->event_contexts.end();) {
-				if (itr->first < min_event_id)
-					itr = this->event_contexts.erase(itr);
-				else
-					++itr;
-			}
+			auto min_it = this->event_contexts.begin();
+			std::advance(min_it, this->event_contexts.size() - this->min_event_contexts);
+			this->event_contexts.erase(this->event_contexts.begin(), min_it);
 		}
 
 		this->tracked_events_counter++;
@@ -213,7 +208,7 @@ void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4S
 	}
 
 	EventContext& event_context = event_context_itr->second;
-	const long track_id = step->GetTrack()->GetTrackID();
+	const size_t track_id = step->GetTrack()->GetTrackID();
 
 	std::map<size_t, TrackStage>::iterator current_track_stage_itr = event_context.track_stage.find(track_id);
 	if (current_track_stage_itr == event_context.track_stage.end()){
@@ -250,9 +245,6 @@ void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4S
 	if (current_track_stage == TrackStage::PATIENT && (post_mat == NULL || post_mat == this->air_material || (pre_mat != NULL && pre_mat == this->air_material))) {
 		current_track_stage = TrackStage::SCATTER;
 	}
-
-	const glm::vec3 track_direction = track_line.direction();
-	const float track_length = track_line.length();
 
 #ifdef WITH_GEANT4_UIVIS
 	G4VVisManager* visManager = G4VVisManager::GetConcreteInstance();
