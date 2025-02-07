@@ -106,6 +106,11 @@ namespace RadiationSimulation {
 		virtual std::shared_ptr<RadFiled3D::IRadiationField> get_normalized_field_copy() = 0;
 		std::shared_ptr<RadFiled3D::IRadiationField> evaluate();
 		virtual float get_statistical_error(size_t primary_particle_count = 0) = 0;
-		virtual size_t get_number_of_tracked_particles() = 0;
+
+		/** Returns amount of primary particles that were requested. */
+		virtual size_t get_primary_particle_count() const = 0;
+
+		/** Returns amount of primary particles that were actually tracked. */
+		virtual size_t get_number_of_tracked_particles() const = 0;
 	};
 };

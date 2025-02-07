@@ -215,19 +215,12 @@ namespace RadiationSimulation {
 			this->tracer = std::make_shared<T>(this->buffers.scatter_field.buffer);
 		}
 
-		/** Returns amount of primary particles that were originally created. */
-		virtual size_t get_number_of_tracked_particles() override;
+		virtual size_t get_number_of_tracked_particles() const override;
+		virtual size_t get_primary_particle_count() const override;
 		
 		virtual void UserSteppingAction(const G4Step*) override;
 		virtual std::shared_ptr<RadFiled3D::IRadiationField> get_normalized_field_copy() override;
 
-		/** Returns amount of primary particles that were originally created. */
-		inline size_t get_primary_particle_count() const { return this->primary_particle_count; }
-
-		/** Returns count of particles actually tracked. */
-		inline size_t get_primary_particles_tracked() const { 
-			return this->tracked_events_counter;
-		}
 		virtual float get_statistical_error(size_t primary_particle_count = 0) override;
 		void register_on_new_particle(std::function<void(size_t, const G4Step*)> callback);
 	};

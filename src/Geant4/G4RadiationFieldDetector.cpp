@@ -158,9 +158,14 @@ void RadiationSimulation::G4RadiationFieldDetector::finalize(size_t particle_cou
 	this->is_tracking = true;
 }
 
-size_t RadiationSimulation::G4RadiationFieldDetector::get_number_of_tracked_particles()
+size_t RadiationSimulation::G4RadiationFieldDetector::get_primary_particle_count() const
 {
 	return this->primary_particle_count;
+}
+
+size_t RadiationSimulation::G4RadiationFieldDetector::get_number_of_tracked_particles() const
+{
+	return this->tracked_events_counter;
 }
 
 void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4Step* step)
