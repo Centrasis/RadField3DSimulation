@@ -330,7 +330,8 @@ int main(int argc, char* argv[]) {
 			source = std::make_shared<XRaySpectrumSource>(
 				spectrum_probabilities,
 				std::move(shape),
-				500
+				500,
+				max_energy
 			);
 			xray_energy = spectrum_probabilities->max();
 		}

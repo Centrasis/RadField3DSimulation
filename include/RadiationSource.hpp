@@ -176,7 +176,7 @@ namespace RadiationSimulation {
 		std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> spectrum_probabilities; ///< Spectrum probabilities.
 		const float energy_lower_cut_eV; ///< Lower cut-off energy in electron volts.
 		RadFiled3D::HistogramVoxel hist; ///< Histogram voxel for the generated spectrum.
-		float* hist_buffer; ///< Buffer for the histogram.
+		std::vector<float> hist_buffer; ///< Buffer for the histogram.
 		mutable std::shared_mutex hist_mutex; ///< Mutex for thread-safe access to the histogram.
 	public:
 		/**
@@ -185,7 +185,7 @@ namespace RadiationSimulation {
 		 * @param shape Shape of the radiation source.
 		 * @param energy_lower_cut_eV Lower cut-off energy in electron volts.
 		 */
-		XRaySpectrumSource(std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> spectrum_probabilities, std::unique_ptr<ISourceShape> shape, float energy_lower_cut_eV = 3e+4);
+		XRaySpectrumSource(std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> spectrum_probabilities, std::unique_ptr<ISourceShape> shape, float energy_lower_cut_eV = 3e+4, float max_energy_eV = 0.f);
 
 		/**
 		 * @brief Destructor for XRaySpectrumSource.

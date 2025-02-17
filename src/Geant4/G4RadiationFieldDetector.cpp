@@ -188,22 +188,27 @@ void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4S
 	std::map<size_t, EventContext>::iterator event_context_itr = this->event_contexts.find(event_id);
 	if (event_context_itr == this->event_contexts.end()) {
 		std::unique_lock lock(this->global_detector_mutex);
-
-		// Limit max size of event_contexts. This will lead to capped memory consumption. Original implementation lead to out-of-memory exceptions on very long runs.
-		if (this->event_contexts.size() > this->max_event_contexts && this->max_event_contexts > this->min_event_contexts) {
-			auto min_it = this->event_contexts.begin();
-			std::advance(min_it, this->event_contexts.size() - this->min_event_contexts);
-			this->event_contexts.erase(this->event_contexts.begin(), min_it);
-		}
-
-		this->tracked_events_counter++;
-		this->event_contexts.insert({ event_id, EventContext() });
 		event_context_itr = this->event_contexts.find(event_id);
-		try {
-			for (auto& cb : this->new_particle_callbacks)
-				cb(this->tracked_events_counter, step);
-		} catch(const std::exception& e) {
-			G4cout << "Error in new particle callback: " << e.what() << G4endl;
+
+		// make sure that the event context was not already created
+		if (event_context_itr == this->event_contexts.end()) {
+			// Limit max size of event_contexts. This will lead to capped memory consumption. Original implementation lead to out-of-memory exceptions on very long runs.
+			if (this->event_contexts.size() > this->max_event_contexts && this->max_event_contexts > this->min_event_contexts) {
+				auto min_it = this->event_contexts.begin();
+				std::advance(min_it, this->event_contexts.size() - this->min_event_contexts);
+				this->event_contexts.erase(this->event_contexts.begin(), min_it);
+			}
+
+			this->tracked_events_counter++;
+			this->event_contexts.insert({ event_id, EventContext() });
+			event_context_itr = this->event_contexts.find(event_id);
+			try {
+				for (auto& cb : this->new_particle_callbacks)
+					cb(this->tracked_events_counter, step);
+			}
+			catch (const std::exception& e) {
+				G4cout << "Error in new particle callback: " << e.what() << G4endl;
+			}
 		}
 	}
 

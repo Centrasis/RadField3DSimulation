@@ -93,7 +93,7 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 void RadiationSimulation::G4RadiationSimulationHandler::display_gui()
 {
 #ifdef WITH_GEANT4_UIVIS
-	auto ui = new G4UIExecutive(0, NULL);
+	auto ui = std::make_unique<G4UIExecutive>(0, NULL); // Use unique_ptr
 	this->has_ui = true;
 	this->G4VisManager = std::make_unique<G4VisExecutive>();
 	this->G4VisManager->Initialize();
@@ -120,8 +120,7 @@ void RadiationSimulation::G4RadiationSimulationHandler::display_gui()
 	this->G4UIManager->ApplyCommand("/vis/enable");
 	this->update_gui();
 	ui->SessionStart();
-	delete ui;
-	this->G4UIManager = std::shared_ptr<G4UImanager>(NULL);
+	// No need to delete ui, unique_ptr will handle it
 #endif
 }
 

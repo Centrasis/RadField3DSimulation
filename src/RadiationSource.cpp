@@ -43,19 +43,27 @@ XRaySource::XRaySource(float energy_eV, std::unique_ptr<ISourceShape> shape)
 {
 }
 
-RadiationSimulation::XRaySpectrumSource::XRaySpectrumSource(std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> spectrum_probabilities, std::unique_ptr<ISourceShape> shape, float energy_lower_cut_eV)
+RadiationSimulation::XRaySpectrumSource::XRaySpectrumSource(std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> spectrum_probabilities, std::unique_ptr<ISourceShape> shape, float energy_lower_cut_eV, float max_energy_eV)
 	: XRaySource(0.0f, std::move(shape)),
 	  energy_lower_cut_eV(energy_lower_cut_eV),
 	  spectrum_probabilities(spectrum_probabilities)
 {
-	this->hist_buffer = new float[150];
-	this->hist = RadFiled3D::HistogramVoxel(150, 1e+3, this->hist_buffer);
+	if (max_energy_eV <= 0.f)
+		max_energy_eV = spectrum_probabilities->max();
+	else 
+		if (max_energy_eV < spectrum_probabilities->max()) {
+			std::cerr << "Max energy value is lower than the maximum value in the spectrum: " << max_energy_eV << " < " << spectrum_probabilities->max() << std::endl;
+			throw std::runtime_error("Max energy value is lower than the maximum value in the spectrum");
+		}
+
+	this->hist_buffer = std::vector<float>(std::max<size_t>(max_energy_eV / 1e+3, 1), 0.0f);
+	this->hist = RadFiled3D::HistogramVoxel(this->hist_buffer.size(), 1e+3, this->hist_buffer.data());
 	this->hist.clear();
 }
 
 RadiationSimulation::XRaySpectrumSource::~XRaySpectrumSource()
 {
-	delete this->hist_buffer;
+	// No need to delete hist_buffer, unique_ptr will handle it
 }
 
 size_t RadiationSimulation::XRaySpectrumSource::getPossibilitiesCount() const
