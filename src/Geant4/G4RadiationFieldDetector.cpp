@@ -188,7 +188,7 @@ void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4S
 	const size_t event_id = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
 
 	std::map<size_t, EventContext>::iterator thread_context_itr = this->thread_contexts.find(thread_id);
-	if (thread_context_itr == this->thread_contexts.end()) { // || thread_context_itr->second.event_id != event_id) {
+	if (thread_context_itr == this->thread_contexts.end()) {
 		std::unique_lock lock(this->global_detector_mutex);
 		this->tracked_events_counter++;
 		thread_context_itr = this->thread_contexts.find(thread_id);
