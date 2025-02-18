@@ -19,6 +19,7 @@
 #include "G4NistManager.hh"
 #include "G4Gamma.hh"
 #include "G4Electron.hh"
+#include "G4Threading.hh"
 
 #ifdef WITH_GEANT4_UIVIS
 // visualization stuff
@@ -151,8 +152,8 @@ void RadiationSimulation::G4RadiationFieldDetector::SetUp()
 void RadiationSimulation::G4RadiationFieldDetector::finalize(size_t particle_count)
 {
 	this->primary_particle_count = particle_count;
-	if (this->event_contexts.size() > 0)
-		this->event_contexts.clear();
+	if (this->thread_contexts.size() > 0)
+		this->thread_contexts.clear();
 	this->buffers.reset();
 	this->tracked_events_counter = 0;
 	this->is_tracking = true;
@@ -183,36 +184,34 @@ void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4S
 		}
 	}
 
+	const G4int thread_id = G4Threading::G4GetThreadId();
 	const size_t event_id = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
 
-	std::map<size_t, EventContext>::iterator event_context_itr = this->event_contexts.find(event_id);
-	if (event_context_itr == this->event_contexts.end()) {
+	std::map<size_t, EventContext>::iterator thread_context_itr = this->thread_contexts.find(thread_id);
+	if (thread_context_itr == this->thread_contexts.end()) { // || thread_context_itr->second.event_id != event_id) {
 		std::unique_lock lock(this->global_detector_mutex);
-		event_context_itr = this->event_contexts.find(event_id);
-
-		// make sure that the event context was not already created
-		if (event_context_itr == this->event_contexts.end()) {
-			// Limit max size of event_contexts. This will lead to capped memory consumption. Original implementation lead to out-of-memory exceptions on very long runs.
-			if (this->event_contexts.size() > this->max_event_contexts && this->max_event_contexts > this->min_event_contexts) {
-				auto min_it = this->event_contexts.begin();
-				std::advance(min_it, this->event_contexts.size() - this->min_event_contexts);
-				this->event_contexts.erase(this->event_contexts.begin(), min_it);
-			}
-
-			this->tracked_events_counter++;
-			this->event_contexts.insert({ event_id, EventContext() });
-			event_context_itr = this->event_contexts.find(event_id);
-			try {
-				for (auto& cb : this->new_particle_callbacks)
-					cb(this->tracked_events_counter, step);
-			}
-			catch (const std::exception& e) {
-				G4cout << "Error in new particle callback: " << e.what() << G4endl;
-			}
+		this->tracked_events_counter++;
+		thread_context_itr = this->thread_contexts.find(thread_id);
+		if (thread_context_itr == this->thread_contexts.end()) {
+			this->thread_contexts.insert({ thread_id, EventContext(event_id) });
+			thread_context_itr = this->thread_contexts.find(thread_id);
 		}
 	}
 
-	EventContext& event_context = event_context_itr->second;
+	if (thread_context_itr->second.event_id != event_id) {
+		thread_context_itr->second = EventContext(event_id);
+		this->tracked_events_counter++;
+		
+		try {
+			for (auto& cb : this->new_particle_callbacks)
+				cb(this->tracked_events_counter, step);
+		}
+		catch (const std::exception& e) {
+			G4cout << "Error in new particle callback: " << e.what() << G4endl;
+		}
+	}
+
+	EventContext& event_context = thread_context_itr->second;
 	const size_t track_id = step->GetTrack()->GetTrackID();
 
 	std::map<size_t, TrackStage>::iterator current_track_stage_itr = event_context.track_stage.find(track_id);

@@ -185,13 +185,14 @@ namespace RadiationSimulation {
 		} buffers;
 
 		struct EventContext {
+			size_t event_id;
 			std::map<size_t, TrackStage> track_stage;
+
+			EventContext(size_t event_id) : event_id(event_id) {}
 		};
 
-		std::map<size_t, EventContext> event_contexts;
-		size_t tracked_events_counter;
-		const size_t max_event_contexts = 2000;
-		const size_t min_event_contexts = 1000;
+		std::map<size_t, EventContext> thread_contexts;
+		std::atomic<size_t> tracked_events_counter;
 		
 		G4Material* air_material = NULL;
 		const float statistical_error_threshold = 0.1f;
