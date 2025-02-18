@@ -245,7 +245,7 @@ def write_spectum_file(src_file: str, out_path: str):
         except FileExistsError:
             pass
         except Exception as e:
-            getLogger().warning(f"Could not create directory {os.path.dirname(out_path)} for field {out_name} -> {e}")
+            getLogger().warning(f"Could not create directory {os.path.dirname(out_path)} for field {os.path.basename(src_file)} -> {e}")
             raise e
 
     spectrum = torch.load(src_file, weights_only=True)
@@ -281,8 +281,15 @@ if __name__ == "__main__":
     parser.add_argument("--bin_count", default=None, required=False, type=float, help="Optional: Define the number of energy bins to store for each fluence in each voxel. Defaults to match a bin width of 1 eV.")
     parser.add_argument("--sequence_file", default=None, type=str, nargs=1, required=False, help="Path to a sequence file that should be used. (Disables energy and angle sampling)")
     parser.add_argument("--tracer_algorithm", default="sampling", type=str, nargs=1, required=False, help="Tracer algorithm to use (sampling, bresenham, linetracing)")
-    parser.add_argument("--cluster_node_partition", default=None, type=int, nargs=2, required=False, help="Partition the node into a cluster of nodes. (Number of nodes, Node ID)")
     parser.add_argument("--dataset_definition", default=None, type=str, nargs=1, required=False, help="Path to a dataset definition file that should be used. (Overrides energy/angle7/source_distance/source_shape/source_opening_angle sampling, energy_resolution, ...)")
+    
+    subcommands = parser.add_subparsers(title="Subcommands", description="valid subcommands", help="")
+    cluster_parser = subcommands.add_parser("cluster", help="Cluster mode")
+    cluster_parser.add_argument("--generate_batch", action="store_true", help="Generate cluster batch files")
+    cluster_parser.add_argument("--type", type=str, required=False, default=None, help="Type of the cluster system ('slurm')")
+    cluster_parser.add_argument("--node_partition", default=None, type=int, nargs=2, required=False, help="Partition the node into a cluster of nodes. (Number of nodes, Node ID)")
+    cluster_parser.add_argument("--node_initialization_batch_path", default=None, type=str, required=False, help="Path to a batch file that should be executed on the cluster nodes before the calculation starts")
+    cluster_parser.set_defaults(cluster=True, namespace="cluster")
 
     args = parser.parse_args()
 
@@ -321,8 +328,25 @@ if __name__ == "__main__":
         dataset_definition_file: str = args.dataset_definition[0] if isinstance(args.dataset_definition, list) else args.dataset_definition
 
     cluster_node_partition = None
-    if "cluster_node_partition" in args and args.cluster_node_partition is not None:
-        cluster_node_partition = args.cluster_node_partition
+    cluster_type = None
+    cluster_should_generate_batch = False
+    cluster_node_initialization_batch_path = None
+
+    if args.cluster:
+        if "type" in args and args.type is not None:
+            cluster_type = args.type
+            if cluster_type not in ["slurm"]:
+                raise Exception("Cluster type must be one of ['slurm']")
+        if "node_partition" in args and args.node_partition is not None:
+            cluster_node_partition = args.node_partition
+        if "generate_batch" in args and args.generate_batch is not None:
+            cluster_should_generate_batch = args.generate_batch
+        if "node_initialization_batch_path" in args and args.node_initialization_batch_path is not None:
+            cluster_node_initialization_batch_path = args.node_initialization_batch_path
+        
+        if cluster_should_generate_batch and cluster_type is None:
+            raise Exception("Cluster type must be defined to generate batch files")
+
 
     opening_angle = source_opening_angle
     if opening_angle is None:
@@ -417,6 +441,30 @@ if __name__ == "__main__":
         parameters = parameters[min_idx:max_idx]
         preexisting_samples_max_nb += min_idx
 
+    cluster_batch_file_name = ""
+    if cluster_should_generate_batch:
+        cluster_batch_file_name = out_dir + ".sh"
+        if os.path.exists(cluster_batch_file_name):
+            os.remove(cluster_batch_file_name)
+
+    if cluster_should_generate_batch:
+        if cluster_type == "slurm":
+            with open(cluster_batch_file_name, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f"#SBATCH --job-name={os.path.basename(out_dir)}\n")
+                f.write(f"#SBATCH -o {os.path.basename(out_dir)}_%j.out\n")
+                f.write(f"#SBATCH -e {os.path.basename(out_dir)}_%j.err\n")
+                f.write("#SBATCH --ntasks-per-node=1\n")
+                f.write(f"#SBATCH -N {cluster_node_partition[0]}\n")
+
+                if cluster_node_initialization_batch_path is not None:
+                    init_content = open(cluster_node_initialization_batch_path, "r").read()
+                    f.write(init_content)
+                    f.write("\n")
+                f.write("\n")
+        else:
+            raise Exception(f"Cluster type {cluster_type} not supported")
+
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         sampling_task = progress.add_task("Calculating field...", total=len(parameters))
         for nb_sample, sample_parameters in enumerate(parameters):
@@ -484,8 +532,9 @@ if __name__ == "__main__":
                     )
                     if not os.path.exists(os.path.join(out_dir, os.path.basename(info_file))):
                         shutil.copyfile(info_file, os.path.join(out_dir, "spectra", os.path.basename(info_file)))
+                spec_csv_file = spec_csv_file.replace("\\", "/")
                 spec_args = [
-                    "--spectrum", os.path.normpath(spec_csv_file)
+                    "--spectrum", spec_csv_file
                 ]
 
             #out_name = f"RF_{'{:1.1f}'.format(energy/1000)}keV_{alpha}_{beta}_{os.path.basename(os.path.splitext(geometry_file)[0])}.rf3"
@@ -505,28 +554,46 @@ if __name__ == "__main__":
             if not args.clean:
                 spec_args.append("--append")
 
-            out = subprocess.run([
-                    binary_path,
-                    "--out", out_path,
-                    "--max-energy", str(Emax),
-                    "--source-alpha", str(alpha),
-                    "--source-beta", str(beta),
-                    "--source-distance", str(source_distance),
-                    "--world-dim", f"{world_size[0]} {world_size[1]} {world_size[2]}",
-                    "--particles", str(particles),
-                    "--source-shape", source_shape,
-                    "--voxel-dim", str(voxel_size),
-                    "--energy-resolution", str(simulation_energy_resolution),
-                    "--source-opening-angle", f"{source_opening_angle}",
-                    "--tracing-algorithm", f"{tracer_algorithm}"
-                ] + spec_args + (["--geom", geometry_file] if geometry_file != '' else []),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=out_dir
-            )
-            err = out.stderr
-            stdout = out.stdout.decode()
-            ret_code = out.returncode
+            out_dir = out_dir.replace("\\", "/")
+            out_path = out_path.replace("\\", "/")
+            geometry_file = geometry_file.replace("\\", "/")
+            binary_path = binary_path.replace("\\", "/")
+
+            cmd_args = [
+                        binary_path,
+                        "--out", out_path,
+                        "--max-energy", str(Emax),
+                        "--source-alpha", str(alpha),
+                        "--source-beta", str(beta),
+                        "--source-distance", str(source_distance),
+                        "--world-dim", f"{world_size[0]} {world_size[1]} {world_size[2]}",
+                        "--particles", str(particles),
+                        "--source-shape", source_shape,
+                        "--voxel-dim", str(voxel_size),
+                        "--energy-resolution", str(simulation_energy_resolution),
+                        "--source-opening-angle", f"{source_opening_angle}",
+                        "--tracing-algorithm", f"{tracer_algorithm}"
+                    ] + spec_args + (["--geom", geometry_file] if geometry_file != '' else [])
+
+            if cluster_should_generate_batch:
+                err = None
+                if cluster_type == "slurm":
+                    with open(cluster_batch_file_name, "a") as f:
+                        f.write("srun --exclusive --ntasks=1 --nodes=1 --no-requeue ")
+                        f.write(" ".join(cmd_args))
+                        f.write(" || true &\n")
+                else:
+                    raise Exception(f"Cluster type {cluster_type} not supported")
+            else:
+                out = subprocess.run(
+                    cmd_args,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    cwd=out_dir
+                )
+                err = out.stderr
+                stdout = out.stdout.decode()
+                ret_code = out.returncode
 
             progress.update(sampling_task, advance=1)
 
@@ -536,4 +603,9 @@ if __name__ == "__main__":
                 if len(err) > 0:
                     print(stdout)
                     print(f"\n\nError while calculating {out_name}: '{err}'")
-            print(f"[white]Field was written to -> [green]{out_path}" if os.path.exists(out_path) else f"[white]Field was [red]not [white]written to -> [red]{out_path}")
+            if not cluster_should_generate_batch:
+                print(f"[white]Field was written to -> [green]{out_path}" if os.path.exists(out_path) else f"[white]Field was [red]not [white]written to -> [red]{out_path}")
+        if cluster_should_generate_batch:
+            if cluster_type == "slurm":
+                with open(cluster_batch_file_name, "a") as f:
+                    f.write("wait")

@@ -140,11 +140,15 @@ Parameters:
 - *bin_count*: Sets the energy resolution according to the desired bin count and maximum energy.
 - *tracer_algorithm*: The used algorithm to find intersected voxels for a given particle path. Can be one of `sampling`, `bresenham` or `linetracing`.
 - *sequence_file*: Optional: Allows to load some of the options sequentially from a JSON-File to automate specific dataset configurations under specified conditions.
-- *cluster_node_partition*: Optional. Only used when `sequence_file` is set. Allows to determine which  section of a sequence file should be processed by this process. Useful when multiple instances are run on a cluster. Specify in the form of: "m" "n" where n is the current node ID ([0..(m-1)]) and m is the total node count.
 - *dataset_definition*: Provide the path to a JSON file containing a whole dataset generation definition. This overrdides all other parameters except for `--dest`, `--binary` and `--cluster_node_partition`. An Example can be found below.
+- **cluster**: An optional cluster submenu for specialized cluster actions
+  - *node_partition*: Optional. Only used when `sequence_file` is set. Allows to determine which  section of a sequence file should be processed by this process. Useful when multiple instances are run on a cluster. Specify in the form of: "m" "n" where n is the current node ID ([0..(m-1)]) and m is the total node count.
+  - *generate_batch*: Generate cluster batch files
+  - *type*: Type of the cluster system ('slurm')
+  - *node_initialization_batch_path*: Path to a batch file that should be executed on the cluster nodes before the calculation starts
 
 #### Example commandline
-``python tools/create_dataset.py --dest <path-to-dataset-folder> --binary <path-to-RadField3D-executable> --dataset_definition <path-to.json> --cluster_node_partition <m> <n>``
+``python tools/create_dataset.py --dest <path-to-dataset-folder> --binary <path-to-RadField3D-executable> --dataset_definition <path-to.json> cluster --node_partition <m> <n>``
 
 #### Example of a dataset definition file
 ```json
