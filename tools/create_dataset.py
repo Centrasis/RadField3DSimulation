@@ -332,7 +332,7 @@ if __name__ == "__main__":
     cluster_should_generate_batch = False
     cluster_node_initialization_batch_path = None
 
-    if args.cluster:
+    if "cluster" in args and args.cluster:
         if "type" in args and args.type is not None:
             cluster_type = args.type
             if cluster_type not in ["slurm"]:
