@@ -36,7 +36,7 @@ class ParameterValue(NamedTuple):
 
 
 class Parameter(object):
-    VALID_NAMES = ["energy", "source_distance", "source_angle_alpha", "source_angle_beta", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim"]
+    VALID_NAMES = ["energy", "source_distance", "source_angle_alpha", "source_angle_beta", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim", "world_material"]
 
     def __init__(self, name: str, range: Union[tuple[int, int], tuple[float, float], list[any]], is_range: bool = None):
         self.name = name.lower()
@@ -122,6 +122,7 @@ class ParameterSequence(ParameterSelector):
         bin_count = Parameter("bin_count", [file_content["Metaparameters"]["BinCount"]]) if "BinCount" in file_content["Metaparameters"] else None
         voxel_size = Parameter("voxel_size", [file_content["Metaparameters"]["VoxelSize"]]) if "VoxelSize" in file_content["Metaparameters"] else None
         world_dim = Parameter("world_dim", [file_content["Metaparameters"]["WorldDim"]]) if "WorldDim" in file_content["Metaparameters"] else None
+        world_material = Parameter("world_material", [file_content["Metaparameters"]["WorldMaterial"]]) if "WorldMaterial" in file_content["Metaparameters"] else None
 
         for i, pset in enumerate(self.parameter_sets):
             all_names = [p.name for p in pset.values]
@@ -137,6 +138,8 @@ class ParameterSequence(ParameterSelector):
                 pset.values.append(voxel_size)
             if not any([p.name == "world_dim" for p in pset.values]) and world_dim is not None:
                 pset.values.append(world_dim)
+            if not any([p.name == "world_material" for p in pset.values]) and world_material is not None:
+                pset.values.append(world_material)
             assert len(set(all_names)) == len(all_names), f"Parameter names must be unique, found duplicates in set {i}"
 
         self.idx = 0
@@ -188,6 +191,7 @@ class ParameterizedSampler(ParameterSelector):
         bin_count = Parameter("bin_count", [file_content["Metaparameters"]["BinCount"]]) if "BinCount" in file_content["Metaparameters"] else None
         voxel_size = Parameter("voxel_size", [file_content["Metaparameters"]["VoxelSize"]]) if "VoxelSize" in file_content["Metaparameters"] else None
         world_dim = Parameter("world_dim", [file_content["Metaparameters"]["WorldDim"]]) if "WorldDim" in file_content["Metaparameters"] else None
+        world_material = Parameter("world_material", [file_content["Metaparameters"]["WorldMaterial"]]) if "WorldMaterial" in file_content["Metaparameters"] else None
         if not any([p.name == "geometry" for p in parameters]) and geometry_file is not None:
             parameters.append(geometry_file)
         if not any([p.name == "particles" for p in parameters]) and particles is not None:
@@ -200,6 +204,8 @@ class ParameterizedSampler(ParameterSelector):
             parameters.append(voxel_size)
         if not any([p.name == "world_dim" for p in parameters]) and world_dim is not None:
             parameters.append(world_dim)
+        if not any([p.name == "world_material" for p in parameters]) and world_material is not None:
+            parameters.append(world_material)
 
         all_names = [p.name for p in parameters]
         assert len(set(all_names)) == len(all_names), "Parameter names must be unique"
@@ -395,7 +401,8 @@ if __name__ == "__main__":
             Parameter("bin_count", [simulation_energy_resolution]),
             Parameter("voxel_size", [voxel_size]),
             Parameter("particles", [particles]),
-            Parameter("world_dim", [world_size])
+            Parameter("world_dim", [world_size]),
+            Parameter("world_material", ["Air"])
         ]
         if spectra_path is not None:
             params.append(Parameter("source_spectra", [spectra_path]))
@@ -469,6 +476,7 @@ if __name__ == "__main__":
         sampling_task = progress.add_task("Calculating field...", total=len(parameters))
         for nb_sample, sample_parameters in enumerate(parameters):
             spectra_path = None
+            world_material = "Air"
             nb_sample += preexisting_samples_max_nb
             for param in sample_parameters:
                 if param.name == "energy":
@@ -499,6 +507,8 @@ if __name__ == "__main__":
                     particles = param.value
                 elif param.name == "world_dim":
                     world_size = param.value
+                elif param.name == "world_material":
+                    world_material = param.value
                 else:
                     raise Exception(f"Parameter {param.name} was not recognized")   
 
@@ -572,7 +582,8 @@ if __name__ == "__main__":
                         "--voxel-dim", str(voxel_size),
                         "--energy-resolution", str(simulation_energy_resolution),
                         "--source-opening-angle", f"{source_opening_angle}",
-                        "--tracing-algorithm", f"{tracer_algorithm}"
+                        "--tracing-algorithm", f"{tracer_algorithm}",
+                        "--world-material", world_material
                     ] + spec_args + (["--geom", geometry_file] if geometry_file != '' else [])
 
             if cluster_should_generate_batch:

@@ -56,6 +56,7 @@ The parameters are the following:
   - For `rectangle`: Two values for the rectangle extents in meter in `source-distance` meter away from the source (so in the center of the scene).
 - *tracing-algorithm*: The used algorithm to find intersected voxels for a given particle path. Can be one of `sampling`, `bresenham` or `linetracing`.
 - *geom*: The path to the geometry file. The geoemetry can be provided by all file formats supported by Assimp like `.obj`, `.fbx` or `.stl`. For each geometry file, one can specify a world scene description file named with the pattern: `[base-file-name].desc` on the same folder as the geoemtry file.
+- *world-material*: Material of the world. Default: Air.
 - *spectrum*: The path to a x-ray spectrum in .csv-format. The CSV-file should have the form column 1: Energy-Bin-Edge starting from 0eV and column 2: relative photon counts for this bin. The input distribution will be normalized to a integral of one.
 - *append*: If a file with the specified name and matching metadata is already present, RadField3D will just add both files together based on the ratio of the primary particles stored in the existing file and the primary particles generated during the current run of RadFiled3D.
 
@@ -161,7 +162,8 @@ Parameters:
         "BinCount": 32,
         "WorldDim": [1, 1, 1],
         "VoxelSize": 0.02,
-        "nSamples": 500
+        "nSamples": 500,
+        "WorldMaterial": "Air"
     },
     "Parameters": [
         {
@@ -235,6 +237,49 @@ Parameters:
                 "value": 0
             },
         ]
+    ]
+}
+```
+
+#### Spectrum files
+X-ray spectra for the radiation source can be passed to the simulation by spectra files. When using the python dataset generator those can be of two types determined by their file extension:
+- __*.spectrum__ files will be interpreted and parsed as pickle files of pyTorch tensors. Those are converted to CSV files, readable by the RadField3D application itself. The first column shall be the energy bin edges in eV and the second column the probability of a photon of that energy range. Each *.spectrum file should be accompanied by a *.info file replacing the .spectrum extension that holds a JSON document that defines the origin configuration that created this spectrum. RadField3D only requires that document to contain a "energy" field in eV that defines the maximum tube energy.
+- __*.csv__ will be interpreted and used as ASCII CSV files. Here the first column is containing the energy bin edges and the second column the probability of a photon of that energy range. It is required, that the column has a unit of __eV__, __keV__ or __MeV__ declared to ensure correct handling of the spectrum.
+
+For a direct call of RadField3D, only ASCII *.csv files can be used.
+
+In any case, RadField3D will normalize the spectrum to ensure it to be a probability distribution.
+
+##### Example spectrum CSV file
+```csv
+Energy[MeV]    Fluence[]
+0.01500E+00, 6.70777566040744E-12      
+0.01600E+00, 3.94509821006659E-10      
+0.01700E+00, 1.08557495078525E-08      
+0.01800E+00, 1.577541987836E-07       
+```
+Please note, that colons (,) will be converted to spaces and it is just required to seperate the columns by using spaces.
+
+##### Example spectrum info file
+Please note, that the dataset generator tool only requires the __energy__ field to be set to the maximum energy of the tube in eV.
+```json
+{
+    "energy": 100000.0,
+    "anode_angle_deg": 35,
+    "target_material": "W",
+    "layers": [
+        {
+            "material": "Be",
+            "thickness_mm": 1
+        },
+        {
+            "material": "Cu",
+            "thickness_mm": 4.028
+        },
+        {
+            "material": "Al",
+            "thickness_mm": 0.151
+        }
     ]
 }
 ```

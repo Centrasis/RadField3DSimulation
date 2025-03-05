@@ -113,21 +113,37 @@ std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> RadiationSimulati
 			}
 			std::getline(file, line);
 		}
+		std::replace(line.begin(), line.end(), ',', ' ');
 		// check if it is indeed a spectrum file
 		std::istringstream iss(line);
 		std::string column_name;
-		if (!(iss >> column_name)) {
-			throw std::runtime_error("Failed to parse first line");
-		}
-		if (column_name.compare("Energy[eV]") == 0) {
-			energy_unit = 1.f;
-		}
-		if (!(iss >> column_name)) {
-			throw std::runtime_error("Failed to parse first line");
-		}
-		if (column_name.compare("Fluence[]") == 0) {
-			second_column_is_fluence = true;
+		size_t column_count = 0;
+		while (iss >> column_name) {
+			column_count++;
 
+			size_t start = column_name.find('[');
+			size_t end = column_name.find(']');
+			if (start != std::string::npos && end != std::string::npos && end > start) {
+				std::string plain_column_name = column_name.substr(0, start);
+				if (plain_column_name.compare("Energy") == 0 && column_count == 1) {
+					std::string unit = column_name.substr(start + 1, end - start - 1);
+					if (unit.compare("MeV") == 0) {
+						energy_unit = 1e+6;
+					}
+					else if (unit.compare("keV") == 0) {
+						energy_unit = 1e+3;
+					}
+					else if (unit.compare("eV") == 0) {
+						energy_unit = 1.f;
+					}
+					else {
+						throw std::runtime_error("Unknown energy unit: " + unit);
+					}
+				}
+				if (plain_column_name.compare("Fluence") == 0 && column_count == 2) {
+					second_column_is_fluence = true;
+				}
+			}
 		}
 	}
 
@@ -143,6 +159,7 @@ std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> RadiationSimulati
 		if (line.starts_with("#") || line.starts_with("//")) {
 			std::getline(file, line);
 		}
+		std::replace(line.begin(), line.end(), ',', ' ');
 		std::istringstream iss(line);
 		double energy, fluence;
 		if (!(iss >> energy >> fluence)) {

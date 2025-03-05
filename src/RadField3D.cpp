@@ -85,6 +85,7 @@ int main(int argc, char* argv[]) {
 	float voxel_dim = 0.1f;
 	float energy_resolution = 1e+3;
 	std::string source_shape = "cone";
+	std::string world_material = "Air";
 	RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING;
 
 
@@ -104,6 +105,7 @@ int main(int argc, char* argv[]) {
 		G4cout << "  --source-opening-angle: Opening angle of the source in deg" << G4endl;
 		G4cout << "  --energy-resolution: Resolution of the energy scroring. Effectively equals the bin width of the spectra histograms in eV. Default: 1 keV" << G4endl;
 		G4cout << "  --tracing-algorithm: Algorithm to use for the grid tracing. Must be one of ['sampling', 'bresenham', 'linetracing']" << G4endl;
+		G4cout << "  --world-material: Material of the world. Default: Air" << G4endl;
 #ifdef WITH_GEANT4_UIVIS
 		G4cout << "  --gui: Flag if the Geant4 GUI should be shown" << G4endl;
 #else
@@ -137,6 +139,10 @@ int main(int argc, char* argv[]) {
 			spectrum_file = value;
 			if (!spectrum_file.is_absolute())
 				spectrum_file = fs::absolute(spectrum_file);
+			continue;
+		}
+		if (arg == "--world-material") {
+			world_material = value;
 			continue;
 		}
 		if (arg == "--out") {
@@ -285,7 +291,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	G4RadiationSimulationHandler* simulation_handler = static_cast<G4RadiationSimulationHandler*>(RadiationSimulator::initialize(RadiationHandlerType::Geant4MedicalXRay).get());
-	RadiationSimulator::set_world_info(std::make_unique<WorldInfo>("Air", world_dim));
+	RadiationSimulator::set_world_info(std::make_unique<WorldInfo>(world_material, world_dim));
 
 	if (!geometry_file.empty()) {
 		G4cout << "Attempt to load geometry from: " << geometry_file.string() << G4endl;
@@ -350,6 +356,7 @@ int main(int argc, char* argv[]) {
 	RadiationSimulator::set_radiation_field_resolution(world_dim, glm::vec3(voxel_dim), max_energy * eV, energy_resolution * eV);
 
 	G4cout << "Using world dimensions: " << world_dim.x << "m x " << world_dim.y << "m x " << world_dim.z << "m" << G4endl;
+	G4cout << "Using world material: " << world_material << G4endl;
 	G4cout << "Using voxel grid tracer: " << (tracing_algorithm == RadFiled3D::GridTracerAlgorithm::SAMPLING ? "SAMPLING" : (tracing_algorithm == RadFiled3D::GridTracerAlgorithm::BRESENHAM ? "BRESENHAM" : "LINETRACING")) << G4endl;
 	G4cout << "Start simulating with voxel dimension: " << voxel_dim << "m and an particle count of " << particle_count << G4endl << G4endl;
 
