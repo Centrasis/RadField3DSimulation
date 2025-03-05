@@ -92,6 +92,7 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 
 void RadiationSimulation::G4RadiationSimulationHandler::display_gui()
 {
+	G4cout << "Displaying GUI..." << G4endl;
 #ifdef WITH_GEANT4_UIVIS
 	auto ui = std::make_unique<G4UIExecutive>(0, NULL); // Use unique_ptr
 	this->has_ui = true;

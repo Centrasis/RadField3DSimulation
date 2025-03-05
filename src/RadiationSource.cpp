@@ -211,16 +211,18 @@ glm::vec3 RadiationSimulation::ConeSourceShape::drawRayDirection()
 RadiationSimulation::RectangleSourceShape::RectangleSourceShape(const glm::vec2& size, float distance)
 	: size(size),
 	  distance(distance),
-	  distribution(0.f, 1.f)
+	  distribution(-0.5f, 0.5f)
 {
+	if (distance <= 0.f)
+		throw std::runtime_error("Distance must be greater than 0");
 }
 
 glm::vec3 RadiationSimulation::RectangleSourceShape::drawRayDirection()
 {
-	float x = this->distribution(this->rand_engine) * this->size.x - this->size.x / 2.0f;
-	float y = this->distribution(this->rand_engine) * this->size.y - this->size.y / 2.0f;
+	float x = this->distribution(this->rand_engine) * this->size.x;
+	float y = this->distribution(this->rand_engine) * this->size.y;
 
-	return glm::normalize(glm::vec3(x, y, this->distance * -2.f/3.f));
+	return glm::normalize(glm::vec3(x, y, -this->distance));
 }
 
 RadiationSimulation::EllipsoidSourceShape::EllipsoidSourceShape(const glm::vec2& angles)

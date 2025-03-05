@@ -360,13 +360,6 @@ int main(int argc, char* argv[]) {
 	G4cout << "Using voxel grid tracer: " << (tracing_algorithm == RadFiled3D::GridTracerAlgorithm::SAMPLING ? "SAMPLING" : (tracing_algorithm == RadFiled3D::GridTracerAlgorithm::BRESENHAM ? "BRESENHAM" : "LINETRACING")) << G4endl;
 	G4cout << "Start simulating with voxel dimension: " << voxel_dim << "m and an particle count of " << particle_count << G4endl << G4endl;
 
-#ifdef WITH_GEANT4_UIVIS
-	if (show_gui) {
-		RadiationSimulator::display_gui();
-		return 0;
-	}
-#endif
-
 	if (!should_append_to_file && fs::exists(out_path)) {
 		fs::remove(out_path);
 	}
@@ -374,16 +367,22 @@ int main(int argc, char* argv[]) {
 	if (should_append_to_file)
 		RadFiled3D::Storage::FieldStore::enable_file_lock_syncronization(true);
 
-	long long start_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-
 	G4cout << "Simulating...";
 	G4cout << G4endl << "Writing field to: " << out_path.string() << G4endl;
 	size_t last_particle_count = 0;
+	long long start_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 	RadiationSimulator::add_callback_every_n_particles([&](std::shared_ptr<RadFiled3D::IRadiationField> field, size_t n_particles) {
 		G4cout << "Simulation auto save after " << n_particles << " particles" << G4endl;
 		last_particle_count = n_particles;
 		store_radiation_field(field, out_path, n_particles, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, should_append_to_file, start_time);
 	}, 1e+6);
+
+#ifdef WITH_GEANT4_UIVIS
+	if (show_gui) {
+		RadiationSimulator::display_gui();
+		std::quick_exit(EXIT_SUCCESS);
+	}
+#endif
 
 	auto field_promise = RadiationSimulator::simulate_radiation_field(particle_count, tracing_algorithm);
 	auto field = field_promise.get_future().get();
