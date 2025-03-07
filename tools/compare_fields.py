@@ -1,4 +1,4 @@
-from RadFiled3D.RadFiled3D import FieldStore, CartesianRadiationField, HistogramVoxel
+from RadFiled3D.RadFiled3D import FieldStore, CartesianRadiationField, HistogramVoxel, RadiationFieldMetadataV1
 import argparse
 import numpy as np
 import os
@@ -40,12 +40,33 @@ if __name__ == "__main__":
     parser.add_argument('--file2', type=str, help='Second radiation field file')
     parser.add_argument('--flip_one_around_z', action='store_true', help='Flip the first field around the z-axis')
 
-
     args = parser.parse_args()
     
     should_flip_around_z = args.flip_one_around_z
     field1: CartesianRadiationField = FieldStore.load(args.file1)
     field2: CartesianRadiationField = FieldStore.load(args.file2)
+
+    metadata1: RadiationFieldMetadataV1 = FieldStore.load_metadata(args.file1)
+    metadata2: RadiationFieldMetadataV1 = FieldStore.load_metadata(args.file2)
+
+    fig = go.Figure()
+    # plot the source spectra
+    if "tube_spectrum" in metadata1.get_dynamic_metadata_keys():
+        spectrum: HistogramVoxel = metadata1.get_dynamic_metadata("tube_spectrum")
+        spectrum.normalize()
+        bin_width = spectrum.get_histogram_bin_width() / 1000.0
+        bin_edges = np.linspace(0.0, spectrum.get_bins() * bin_width, spectrum.get_bins())
+        fig.add_trace(go.Scatter(x=bin_edges, y=spectrum.get_histogram(), mode='lines', name="tube spectrum: " + os.path.basename(args.file1)))
+    if "tube_spectrum" in metadata2.get_dynamic_metadata_keys():
+        spectrum: HistogramVoxel = metadata2.get_dynamic_metadata("tube_spectrum")
+        spectrum.normalize()
+        bin_width = spectrum.get_histogram_bin_width() / 1000.0
+        bin_edges = np.linspace(0.0, spectrum.get_bins() * bin_width, spectrum.get_bins())
+        fig.add_trace(go.Scatter(x=bin_edges, y=spectrum.get_histogram(), mode='lines', name="tube spectrum: " + os.path.basename(args.file2)))
+    fig.update_xaxes(title_text="Energy (keV)")
+    fig.update_yaxes(title_text="Probability density")
+    fig.update_layout(title_text="Source spectra")
+    fig.show()
 
     field_dim = field1.get_field_dimensions()
     assert field_dim == field2.get_field_dimensions(), f"Field dimensions do not match {field_dim} != {field2.get_field_dimensions()}"
