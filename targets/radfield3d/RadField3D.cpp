@@ -48,9 +48,6 @@ void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, f
 		)
 	);
 
-	//fs::path new_path = out_path;
-	//new_path.replace_extension("." + std::to_string(n_particles) + ".rf");
-
 	RadFiled3D::HistogramVoxel spectrum = static_cast<XRaySpectrumSource*>(source.get())->getGeneratedSpectrum();
 	metadata->set_dynamic_metadata<RadFiled3D::HistogramVoxel>("tube_spectrum", spectrum);
 	uint64_t duration = end_time - start_time;

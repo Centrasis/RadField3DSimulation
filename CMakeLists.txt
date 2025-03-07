@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16...3.27)
 project(RadField3DSimulation LANGUAGES CXX)
 
 
-SET(CMAKE_CONFIGURATION_TYPES "Release;RelWithDebInfo;Debug")
+SET(CMAKE_CONFIGURATION_TYPES "Release;RelWithDebInfo")
 SET(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -101,12 +101,30 @@ foreach(_source IN ITEMS ${src_list})
     source_group(${_group_path} FILES ${_source})
 endforeach()
 
-add_executable(RadField3D ${sources})
-target_include_directories(RadField3D PUBLIC include PRIVATE src)
+add_library(libRadField3D STATIC ${sources})
+target_include_directories(libRadField3D PUBLIC include)
 if (MSVC)
-  target_link_libraries(RadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D)
+  target_link_libraries(libRadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D)
 else()
-  target_link_libraries(RadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D stdc++fs)
+  target_link_libraries(libRadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D stdc++fs)
+endif()
+if(WITH_GEANT4_UIVIS)
+  target_compile_definitions(libRadField3D PUBLIC WITH_GEANT4_UIVIS)
+endif()
+set_target_properties(libRadField3D
+  PROPERTIES
+  ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
+  LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
+  RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin"
+)
+set_target_properties(libRadField3D PROPERTIES FOLDER "Library")
+
+add_executable(RadField3D ${PROJECT_SOURCE_DIR}/targets/radfield3d/RadField3D.cpp ${sources})
+target_include_directories(RadField3D PUBLIC include)
+if (MSVC)
+  target_link_libraries(RadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D libRadField3D)
+else()
+  target_link_libraries(RadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D libRadField3D stdc++fs)
 endif()
 if(WITH_GEANT4_UIVIS)
   target_compile_definitions(RadField3D PUBLIC WITH_GEANT4_UIVIS)
@@ -173,86 +191,46 @@ if(BUILD_TESTS)
 
   enable_testing()
 
-  add_executable(WorldTest ${PROJECT_SOURCE_DIR}/targets/test/WorldTest.cpp)
-  target_include_directories(WorldTest PUBLIC include PRIVATE src)
-  if (MSVC)
-    target_link_libraries(WorldTest ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D)
-  else()
-    target_link_libraries(WorldTest ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D stdc++fs)
-  endif()
-  set_property(TARGET WorldTest PROPERTY CXX_STANDARD ${CMAKE_CXX_STANDARD})
-  set_target_properties(WorldTest
+  function(link_test_target target_name)
+    target_include_directories(${target_name} PUBLIC include)
+    if (MSVC)
+      target_link_libraries(${target_name} ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D libRadField3D GTest::gtest_main)
+    else()
+      target_link_libraries(${target_name} ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D libRadField3D GTest::gtest_main stdc++fs)
+    endif()
+    set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${CMAKE_CXX_STANDARD})
+    set_target_properties(${target_name}
       PROPERTIES
       ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
       LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
       RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin"
-  )
+    )
+  endfunction()
+
+  add_executable(WorldTest ${PROJECT_SOURCE_DIR}/targets/test/WorldTest.cpp)
+  link_test_target(WorldTest)
 
   add_executable(CollisionTest ${PROJECT_SOURCE_DIR}/targets/test/CollisionTest.cpp)
-  target_include_directories(CollisionTest PUBLIC include PRIVATE src)
-  if (MSVC)
-    target_link_libraries(CollisionTest ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D GTest::gtest_main)
-  else()
-    target_link_libraries(CollisionTest ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D GTest::gtest_main stdc++fs)
-  endif()
-  set_property(TARGET CollisionTest PROPERTY CXX_STANDARD ${CMAKE_CXX_STANDARD})
-  set_target_properties(CollisionTest
-    PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
-    LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
-    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin"
-  )
+  link_test_target(CollisionTest)
 
   add_executable(HistogramStatisticsTest ${PROJECT_SOURCE_DIR}/targets/test/HistogramStatisticsTest.cpp)
-  target_include_directories(HistogramStatisticsTest PUBLIC include PRIVATE src)
-  if (MSVC)
-    target_link_libraries(HistogramStatisticsTest ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D GTest::gtest_main)
-  else()
-    target_link_libraries(HistogramStatisticsTest ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D GTest::gtest_main stdc++fs)
-  endif()
-  set_property(TARGET HistogramStatisticsTest PROPERTY CXX_STANDARD ${CMAKE_CXX_STANDARD})
-  set_target_properties(HistogramStatisticsTest
-    PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
-    LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
-    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin"
-  )
+  link_test_target(HistogramStatisticsTest)
+
+  add_executable(SourceDistributionTests ${PROJECT_SOURCE_DIR}/targets/test/SourceDistributionTests.cpp)
+  link_test_target(SourceDistributionTests)
 
   add_executable(RSLibPCADirectionTest ${PROJECT_SOURCE_DIR}/targets/test/PCADirectionTests.cpp)
-  target_include_directories(RSLibPCADirectionTest PUBLIC include PRIVATE src)
-  if (MSVC)
-    target_link_libraries(RSLibPCADirectionTest ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D GTest::gtest_main)
-  else()
-    target_link_libraries(RSLibPCADirectionTest ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D GTest::gtest_main stdc++fs)
-  endif()
-  set_property(TARGET RSLibPCADirectionTest PROPERTY CXX_STANDARD ${CMAKE_CXX_STANDARD})
-  set_target_properties(RSLibPCADirectionTest
-    PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
-    LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
-    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin"
-  )
+  link_test_target(RSLibPCADirectionTest)
 
   add_executable(RSLibLoadTest ${PROJECT_SOURCE_DIR}/targets/test/LoadTest.cpp)
-  target_include_directories(RSLibLoadTest PUBLIC include PRIVATE src)
-  if (MSVC)
-    target_link_libraries(RSLibLoadTest ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D GTest::gtest_main)
-  else()
-    target_link_libraries(RSLibLoadTest ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D GTest::gtest_main stdc++fs)
-  endif()
-  set_property(TARGET RSLibLoadTest PROPERTY CXX_STANDARD ${CMAKE_CXX_STANDARD})
-  set_target_properties(RSLibLoadTest
-    PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
-    LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib"
-    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin"
-  )
+  link_test_target(RSLibLoadTest)
 
   set_target_properties(WorldTest PROPERTIES FOLDER "Tests")
   set_target_properties(CollisionTest PROPERTIES FOLDER "Tests")
   set_target_properties(RSLibLoadTest PROPERTIES FOLDER "Tests")
   set_target_properties(RSLibPCADirectionTest PROPERTIES FOLDER "Tests")
   set_target_properties(HistogramStatisticsTest PROPERTIES FOLDER "Tests")
+  set_target_properties(SourceDistributionTests PROPERTIES FOLDER "Tests")
 
 
   set_target_properties(gtest PROPERTIES FOLDER "ThirdParty/GTest")

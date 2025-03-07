@@ -29,7 +29,7 @@ namespace RadiationSimulation {
 	 */
 	class ConeSourceShape : public ISourceShape {
 	protected:
-		std::random_device rand_engine; ///< Random engine for generating directions.
+		std::mt19937 rand_engine; ///< Random engine for generating directions.
 		std::uniform_real_distribution<float> rot_angle_distribution; ///< Distribution for rotation angles.
 		float opening_angle_radians; ///< Opening angle in radians.
 	public:
@@ -51,8 +51,9 @@ namespace RadiationSimulation {
 	 */
 	class RectangleSourceShape : public ISourceShape {
 	protected:
-		std::random_device rand_engine; ///< Random engine for generating directions.
-		std::uniform_real_distribution<float> distribution; ///< Distribution for generating directions.
+		std::mt19937 rand_engine; ///< Random engine for generating directions.
+		std::uniform_real_distribution<float> distribution_x; ///< Distribution for generating directions.
+		std::uniform_real_distribution<float> distribution_y; ///< Distribution for generating directions.
 		glm::vec2 size; ///< Size of the rectangle.
 		float distance; ///< Distance from the source.
 	public:
@@ -76,7 +77,7 @@ namespace RadiationSimulation {
 	class EllipsoidSourceShape : public ISourceShape {
 	protected:
 		glm::vec2 angles; ///< Angles defining the ellipsoid.
-		std::random_device rand_engine; ///< Random engine for generating directions.
+		std::mt19937 rand_engine;  ///< Random engine for generating directions.
 		std::uniform_real_distribution<float> distribution; ///< Distribution for generating directions.
 	public:
 		/**

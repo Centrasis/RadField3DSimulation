@@ -192,7 +192,8 @@ RadiationSimulation::ConeSourceShape::ConeSourceShape(float opening_angle_deg)
 			  1.f
 		  )
 	  ),
-	  opening_angle_radians(glm::radians(opening_angle_deg))
+	  opening_angle_radians(glm::radians(opening_angle_deg)),
+	  rand_engine(std::random_device{}())
 {
 }
 
@@ -211,16 +212,17 @@ glm::vec3 RadiationSimulation::ConeSourceShape::drawRayDirection()
 RadiationSimulation::RectangleSourceShape::RectangleSourceShape(const glm::vec2& size, float distance)
 	: size(size),
 	  distance(distance),
-	  distribution(-0.5f, 0.5f)
+	  distribution_x(-0.5f * size.x, 0.5f * size.x),
+	  distribution_y(-0.5f * size.y, 0.5f * size.y),
+	  rand_engine(std::random_device{}())
 {
-	if (distance <= 0.f)
-		throw std::runtime_error("Distance must be greater than 0");
+	
 }
 
 glm::vec3 RadiationSimulation::RectangleSourceShape::drawRayDirection()
 {
-	float x = this->distribution(this->rand_engine) * this->size.x;
-	float y = this->distribution(this->rand_engine) * this->size.y;
+	float x = this->distribution_x(this->rand_engine);
+	float y = this->distribution_y(this->rand_engine);
 
 	return glm::normalize(glm::vec3(x, y, -this->distance));
 }
@@ -232,7 +234,8 @@ RadiationSimulation::EllipsoidSourceShape::EllipsoidSourceShape(const glm::vec2&
 			glm::radians(angles.y)
 		)
 	),
-	distribution(-0.5f, 0.5f)
+	distribution(-0.5f, 0.5f),
+	rand_engine(std::random_device{}())
 {
 }
 
