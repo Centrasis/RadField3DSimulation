@@ -563,6 +563,10 @@ if __name__ == "__main__":
 
             if not args.clean:
                 spec_args.append("--append")
+            elif os.path.exists(out_path):
+                getLogger().warning(f"Field {out_name} already exists and should be cleaned. Skipping...")
+                progress.update(sampling_task, advance=1)
+                continue
 
             out_dir = out_dir.replace("\\", "/")
             out_path = out_path.replace("\\", "/")
