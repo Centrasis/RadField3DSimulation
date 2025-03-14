@@ -11,6 +11,7 @@ This repository contains the code of the monte-carlo simulation application pres
   - [Using the DatasetGenerator](#using-the-datasetgenerator)
     - [Example of a dataset definition file](#example-of-a-dataset-definition-file)
     - [Example of a sequence file](#example-of-a-sequence-file)
+- [Viewing and Exploring Datasets](#viewing-and-exploring-datasets)
 
 ## Getting Started
 ### Installing from Source
@@ -283,3 +284,8 @@ Please note, that the dataset generator tool only requires the __energy__ field 
     ]
 }
 ```
+
+## Viewing and Exploring Datasets
+For viewing the results of the simulation and analyzing whole datasets, we provide the so called `RadFiled3DExplorer`. That little python program offers a GUI to view radiation fields generation with this simulation software. You find the project [here](https://github.com/Centrasis/RadFiled3DExplorer).
+
+![Explorer View](https://raw.githubusercontent.com/Centrasis/RadFiled3DExplorer/550796906ad94a82ba99d9fdde77d4e657062b81/docs/imgs/GUI_example.png)
