@@ -286,6 +286,6 @@ Please note, that the dataset generator tool only requires the __energy__ field 
 ```
 
 ## Viewing and Exploring Datasets
-For viewing the results of the simulation and analyzing whole datasets, we provide the so called `RadFiled3DExplorer`. That little python program offers a GUI to view radiation fields generation with this simulation software. You find the project [here](https://github.com/Centrasis/RadFiled3DExplorer).
+For viewing the results of the simulation and analyzing whole datasets, we provide the so called `RadFiled3DExplorer`. That little python program offers a GUI to view radiation fields generated with our simulation software. You find the project [here](https://github.com/Centrasis/RadFiled3DExplorer).
 
 ![Explorer View](https://raw.githubusercontent.com/Centrasis/RadFiled3DExplorer/550796906ad94a82ba99d9fdde77d4e657062b81/docs/imgs/GUI_example.png)
