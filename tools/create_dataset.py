@@ -288,7 +288,8 @@ if __name__ == "__main__":
     parser.add_argument("--sequence_file", default=None, type=str, nargs=1, required=False, help="Path to a sequence file that should be used. (Disables energy and angle sampling)")
     parser.add_argument("--tracer_algorithm", default="sampling", type=str, nargs=1, required=False, help="Tracer algorithm to use (sampling, bresenham, linetracing)")
     parser.add_argument("--dataset_definition", default=None, type=str, nargs=1, required=False, help="Path to a dataset definition file that should be used. (Overrides energy/angle7/source_distance/source_shape/source_opening_angle sampling, energy_resolution, ...)")
-    
+    parser.add_argument("--error_logs", default=None, type=str, nargs=1, required=False, help="Path to a file where the error logs should be stored. Defaults to None which means console output only.")
+
     subcommands = parser.add_subparsers(title="Subcommands", description="valid subcommands", help="")
     cluster_parser = subcommands.add_parser("cluster", help="Cluster mode")
     cluster_parser.add_argument("--generate_batch", action="store_true", help="Generate cluster batch files")
@@ -318,6 +319,10 @@ if __name__ == "__main__":
     source_angles: List[float] = args.source_angles
     should_sample_angles = source_angles is None
     source_opening_angle = None
+    STORE_ERROR_LOGS = args.error_logs[0] if isinstance(args.error_logs, list) else args.error_logs
+    if STORE_ERROR_LOGS is not None:
+        if not os.path.isabs(STORE_ERROR_LOGS):
+            STORE_ERROR_LOGS = os.path.join(os.getcwd(), STORE_ERROR_LOGS)
     tracer_algorithm: str = args.tracer_algorithm[0] if isinstance(args.tracer_algorithm, list) else args.tracer_algorithm
 
     if "source_opening_angle" in args and args.source_opening_angle is not None:
@@ -618,6 +623,14 @@ if __name__ == "__main__":
                 if len(err) > 0:
                     print(stdout)
                     print(f"\n\nError while calculating {out_name}: '{err}'")
+                    if STORE_ERROR_LOGS is not None:
+                        if not os.path.exists(STORE_ERROR_LOGS):
+                            os.makedirs(STORE_ERROR_LOGS)
+                        error_path = os.path.join(STORE_ERROR_LOGS, f"{out_name}.log")
+                        if os.path.exists(error_path):
+                            os.remove(error_path)
+                        with open(error_path, "w") as f:
+                            f.write(err)
             if not cluster_should_generate_batch:
                 print(f"[white]Field was written to -> [green]{out_path}" if os.path.exists(out_path) else f"[white]Field was [red]not [white]written to -> [red]{out_path}")
         if cluster_should_generate_batch:
