@@ -393,6 +393,8 @@ if __name__ == "__main__":
     if dataset_definition_file is not None:
         parameters = ParameterizedSampler.load_from(dataset_definition_file)
     
+    random.seed(None)
+
     if parameters is None:
         params = [
             Parameter("energy", energy_range),
