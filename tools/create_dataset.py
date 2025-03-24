@@ -11,6 +11,8 @@ import json
 import shutil
 from typing import NamedTuple
 from logging import getLogger
+import datetime
+import platform
 
 
 pattern_energy = re.compile(r"Set X-Ray source energy to: ([\de\+\-]+)eV")
@@ -393,7 +395,8 @@ if __name__ == "__main__":
     if dataset_definition_file is not None:
         parameters = ParameterizedSampler.load_from(dataset_definition_file)
     
-    random.seed(None)
+    # Seed from hostname and current datetime
+    random.seed(hash(platform.node() + str(datetime.datetime.now().timestamp())))
 
     if parameters is None:
         params = [
