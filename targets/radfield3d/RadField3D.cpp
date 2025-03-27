@@ -83,6 +83,7 @@ int main(int argc, char* argv[]) {
 	float energy_resolution = 1e+3;
 	std::string source_shape = "cone";
 	std::string world_material = "Air";
+	int cpu_count = -1;
 	RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING;
 
 
@@ -109,6 +110,7 @@ int main(int argc, char* argv[]) {
 		G4cout << "  --gui: Flag if the Geant4 GUI should be shown. Not available in this build and will be ignored." << G4endl;
 #endif
 		G4cout << "  --append: Flag if this simulation data should be appended to an potentially existing file using the SimulationSimilar policy" << G4endl;
+		G4cout << "  --cpu-count: Number of CPU cores to use. Default: -1 (all available cores)" << G4endl;
 		return 0;
 	}
 
@@ -164,6 +166,10 @@ int main(int argc, char* argv[]) {
 		if (arg == "--max-energy") {
 			xray_energy = std::stod(value);
 			max_energy = xray_energy;
+			continue;
+		}
+		if (arg == "--cpu-count") {
+			cpu_count = std::stoi(value);
 			continue;
 		}
 		if (arg == "--source-opening-angle") {
@@ -287,7 +293,13 @@ int main(int argc, char* argv[]) {
 		out_path.replace_extension(".rf3");
 	}
 
-	G4RadiationSimulationHandler* simulation_handler = static_cast<G4RadiationSimulationHandler*>(RadiationSimulator::initialize(RadiationHandlerType::Geant4MedicalXRay).get());
+	if (cpu_count > 0) {
+		G4cout << "Initialize radiation simulation handler to use " << cpu_count << " threads." << G4endl;
+	}
+	else {
+		G4cout << "Initialize radiation simulation handler to use all available threads." << G4endl;
+	}
+	G4RadiationSimulationHandler* simulation_handler = static_cast<G4RadiationSimulationHandler*>(RadiationSimulator::initialize(RadiationHandlerType::Geant4MedicalXRay, cpu_count).get());
 	RadiationSimulator::set_world_info(std::make_unique<WorldInfo>(world_material, world_dim));
 
 	if (!geometry_file.empty()) {

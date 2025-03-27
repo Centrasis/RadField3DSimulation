@@ -290,7 +290,8 @@ if __name__ == "__main__":
     parser.add_argument("--sequence_file", default=None, type=str, nargs=1, required=False, help="Path to a sequence file that should be used. (Disables energy and angle sampling)")
     parser.add_argument("--tracer_algorithm", default="sampling", type=str, nargs=1, required=False, help="Tracer algorithm to use (sampling, bresenham, linetracing)")
     parser.add_argument("--dataset_definition", default=None, type=str, nargs=1, required=False, help="Path to a dataset definition file that should be used. (Overrides energy/angle7/source_distance/source_shape/source_opening_angle sampling, energy_resolution, ...)")
-    parser.add_argument("--error_logs", default=None, type=str, nargs=1, required=False, help="Path to a file where the error logs should be stored. Defaults to None which means console output only.")
+    parser.add_argument("--error_logs", default=None, type=str, nargs=1, required=False, help="Path to a folder where the error logs should be stored. Defaults to None which means console output only.")
+    parser.add_argument("--cpu_count", default=-1, type=int, nargs=1, required=False, help="Number of CPU cores to use for the calculation. Defaults to -1 which means all available cores.")
 
     subcommands = parser.add_subparsers(title="Subcommands", description="valid subcommands", help="")
     cluster_parser = subcommands.add_parser("cluster", help="Cluster mode")
@@ -301,6 +302,8 @@ if __name__ == "__main__":
     cluster_parser.set_defaults(cluster=True, namespace="cluster")
 
     args = parser.parse_args()
+
+    USED_CPU_CORES = args.cpu_count[0] if isinstance(args.cpu_count, list) else args.cpu_count
 
     out_dir: str = args.dest[0] if isinstance(args.dest, list) else args.dest
     n_sample_fields: int = args.fields[0] if isinstance(args.fields, list) else args.fields
@@ -583,6 +586,11 @@ if __name__ == "__main__":
             geometry_file = geometry_file.replace("\\", "/")
             binary_path = binary_path.replace("\\", "/")
 
+            additional_options = []
+            if USED_CPU_CORES > 0:
+                additional_options.append("--cpu-count")
+                additional_options.append(f"{USED_CPU_CORES}")
+
             cmd_args = [
                         binary_path,
                         "--out", out_path,
@@ -597,8 +605,8 @@ if __name__ == "__main__":
                         "--energy-resolution", str(simulation_energy_resolution),
                         "--source-opening-angle", f"{source_opening_angle}",
                         "--tracing-algorithm", f"{tracer_algorithm}",
-                        "--world-material", world_material
-                    ] + spec_args + (["--geom", geometry_file] if geometry_file != '' else [])
+                        "--world-material", world_material,
+                    ] + additional_options + spec_args + (["--geom", geometry_file] if geometry_file != '' else [])
 
             if cluster_should_generate_batch:
                 err = None

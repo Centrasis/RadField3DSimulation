@@ -37,7 +37,7 @@ namespace RadiationSimulation {
 		 * @param handler_type The type of radiation handler to initialize.
 		 * @return Shared pointer to the initialized radiation simulation handler.
 		 */
-		static std::shared_ptr<RadiationSimulationHandler> initialize(RadiationHandlerType handler_type);
+		static std::shared_ptr<RadiationSimulationHandler> initialize(const RadiationHandlerType handler_type, const int cpu_count = -1);
 
 		/**
 		 * @brief Simulates the radiation field. Shall support multi-threading, but is not required to allow a non-blocking call.

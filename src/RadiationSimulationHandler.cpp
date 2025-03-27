@@ -23,16 +23,23 @@
 
 using namespace RadiationSimulation;
 
+RadiationSimulation::G4RadiationSimulationHandler::G4RadiationSimulationHandler(const int cpu_count)
+	: cpu_count(cpu_count)
+{
+}
+
 bool G4RadiationSimulationHandler::initialize()
 {
 	CLHEP::HepRandom::setTheEngine(&this->random_generator);
 	G4SteppingVerbose::UseBestUnit(4);
 #ifdef WITH_GEANT4_UIVIS
+	if (cpu_count > 1)
+		throw std::runtime_error("Cannot use multiple threads with GUI enabled!");
 	// Switch to Serial Mode to be able to use the GUI to draw tracks
 	this->G4mgr = std::unique_ptr<G4RunManager>(G4RunManagerFactory::CreateRunManager(G4RunManagerType::Serial));
 #else
 	this->G4mgr = std::unique_ptr<G4RunManager>(G4RunManagerFactory::CreateRunManager(G4RunManagerType::MT));
-	G4int nThreads = std::max(G4Threading::G4GetNumberOfCores(), 1);
+	G4int nThreads = std::max((this->cpu_count > 0) ? std::min(G4Threading::G4GetNumberOfCores(), this->cpu_count) : G4Threading::G4GetNumberOfCores(), 1);
 	this->G4mgr->SetNumberOfThreads(nThreads);
 #endif
 

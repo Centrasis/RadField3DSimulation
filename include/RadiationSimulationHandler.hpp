@@ -98,6 +98,7 @@ namespace RadiationSimulation {
 	 */
 	class G4RadiationSimulationHandler : public RadiationSimulationHandler {
 	protected:
+		int cpu_count; ///< Number of CPU cores to use.
 		bool run_mgr_initialized = false; ///< Flag indicating if the run manager is initialized.
 		G4VModularPhysicsList* physics; ///< Pointer to the physics list.
 		const int base_particle_count = 1e+6; ///< Base particle count for the simulation.
@@ -112,6 +113,8 @@ namespace RadiationSimulation {
 		std::vector<std::pair<size_t, std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)>>> callbacks; ///< Vector of callbacks.
 
 	public:
+		G4RadiationSimulationHandler(const int cpu_count = -1);
+
 		/**
 		 * @brief Initialize the Geant4 simulation handler.
 		 * @return True if initialization is successful, false otherwise.

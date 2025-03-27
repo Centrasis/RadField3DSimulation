@@ -9,13 +9,13 @@ std::shared_ptr<RadiationSimulationHandler> RadiationSimulator::handler;
 bool RadiationSimulator::bIsBusy = false;
 
 
-std::shared_ptr<RadiationSimulationHandler> RadiationSimulator::initialize(RadiationHandlerType handler_type)
+std::shared_ptr<RadiationSimulationHandler> RadiationSimulator::initialize(const RadiationHandlerType handler_type, const int cpu_count)
 {
 	World::instance = std::make_shared<World>();
 	World::world_info = std::make_unique<WorldInfo>("Air", glm::vec3(1.f));
 	switch (handler_type) {
 		case RadiationHandlerType::Geant4MedicalXRay:
-			RadiationSimulator::handler = std::make_shared<G4RadiationSimulationHandler>();
+			RadiationSimulator::handler = std::make_shared<G4RadiationSimulationHandler>(cpu_count);
 			break;
 		default:
 			throw std::runtime_error("Unknown RadiationHandlerType!");
