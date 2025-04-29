@@ -1,6 +1,11 @@
 # RadField3D: A generator for spatially resolved x-ray radiation fields using Geant4
 This repository contains the code of the monte-carlo simulation application presented by our [Paper](https://arxiv.org/abs/2412.13852) that we call RadField3D. This application aims to simulate a concentric x-ray beam, that can be rotated on a sphere with a certain radius around the center of the irradiated scene. RadField3D stores the radiation fields spatially resolved in an efficiently machine readable and interpretable file format that we refer to as RadFiled3D. The code of that file format is located [here](https://github.com/Centrasis/RadFiled3D). Thanks to the Python API and pyTorch Integration, this application and RadFiled3D is suited to be used in machine learning. Therefore, RadFiled3D can be directly installed from PyPi using pip.
 
+The validation dataset (measured and simulated) is available here:
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15268479.svg)](https://doi.org/10.5281/zenodo.15268479)
+
+
 ## Table of Contents
 - [Getting Started](#getting-started)
   - [Installing from Source](#installing-from-source)
