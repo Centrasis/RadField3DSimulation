@@ -294,3 +294,20 @@ Please note, that the dataset generator tool only requires the __energy__ field 
 For viewing the results of the simulation and analyzing whole datasets, we provide the so called `RadFiled3DExplorer`. That little python program offers a GUI to view radiation fields generated with our simulation software. You find the project [here](https://github.com/Centrasis/RadFiled3DExplorer).
 
 ![Explorer View](https://raw.githubusercontent.com/Centrasis/RadFiled3DExplorer/550796906ad94a82ba99d9fdde77d4e657062b81/docs/imgs/GUI_example.png)
+
+## How to cite
+```BibTex
+@article{Lehner_2025,
+    doi = {10.1088/1361-6498/add53d},
+    url = {https://dx.doi.org/10.1088/1361-6498/add53d},
+    year = {2025},
+    month = {may},
+    publisher = {IOP Publishing},
+    volume = {45},
+    number = {2},
+    pages = {021508},
+    author = {Lehner, Felix and Lombardo, Pasquale and Castillo, Susana and Hupe, Oliver and Magnor, Marcus},
+    title = {RadField3D: a data generator and data format for deep learning in radiation-protection dosimetry for medical applications},
+    journal = {Journal of Radiological Protection}
+}
+```
