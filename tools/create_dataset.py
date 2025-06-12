@@ -43,7 +43,7 @@ class Parameter(object):
     def __init__(self, name: str, range: Union[tuple[int, int], tuple[float, float], list[any]], is_range: bool = None):
         self.name = name.lower()
         assert name in Parameter.VALID_NAMES, f"Parameter name must be one of {Parameter.VALID_NAMES} not {name}"
-        self.range = range
+        self.range = range if isinstance(range, list) or isinstance(range, set) else [range]
         assert len(range) > 0, "Range must have at least one element"
         if is_range is None:
             self.is_range = len(range) == 2 and ((isinstance(range[0], int) and isinstance(range[1], int)) or (isinstance(range[0], float) and isinstance(range[1], float)))
@@ -61,6 +61,15 @@ class Parameter(object):
         else:
             idx = random.randint(0, len(self.range) - 1)
             return self.range[idx]
+
+    def get_value(self) -> any:
+        """Get the value of the parameter if it is not a range, otherwise raise an exception."""
+        if self.is_range:
+            raise Exception("Cannot get value of a range parameter, use sample() instead")
+        else:
+            return self.range[0]
+
+    value = property(get_value)
 
     @staticmethod
     def from_json(json: dict) -> "Parameter":

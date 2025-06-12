@@ -8,7 +8,7 @@
 #include <G4RunManager.hh>
 
 #ifdef WITH_GEANT4_UIVIS
-class G4UImanager;
+#include <G4UImanager.hh>
 #include <G4VisExecutive.hh>
 #endif
 class G4VModularPhysicsList;
@@ -98,6 +98,7 @@ namespace RadiationSimulation {
 	 */
 	class G4RadiationSimulationHandler : public RadiationSimulationHandler {
 	protected:
+		std::vector<std::shared_ptr<Mesh>> meshes;
 		int cpu_count; ///< Number of CPU cores to use.
 		bool run_mgr_initialized = false; ///< Flag indicating if the run manager is initialized.
 		G4VModularPhysicsList* physics; ///< Pointer to the physics list.

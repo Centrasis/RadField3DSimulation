@@ -1,8 +1,5 @@
 #include "RadiationSimulationHandler.hpp"
 #include <G4RunManagerFactory.hh>
-#ifdef WITH_GEANT4_UIVIS
-#include <G4UImanager.hh>
-#endif
 #include <thread>
 #include "Geant4/G4SceneConstructor.hpp"
 #include <QGSP_BIC_HP.hh>
@@ -19,12 +16,17 @@
 #include <random>
 #include "G4EmStandardPhysics_option4.hh"
 #include "Geant4/G4PhysicsList.hpp"
+#include <glm/gtc/quaternion.hpp>
 
 
 using namespace RadiationSimulation;
 
 RadiationSimulation::G4RadiationSimulationHandler::G4RadiationSimulationHandler(const int cpu_count)
-	: cpu_count(cpu_count)
+	: cpu_count(cpu_count),
+	  physics(nullptr),
+	  run_mgr_initialized(false),
+	  has_ui(false),
+	  field_detector(nullptr)
 {
 }
 
@@ -51,6 +53,38 @@ bool G4RadiationSimulationHandler::initialize()
 
 void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 {
+	if (this->meshes.size() > 0) {
+		if (this->run_mgr_initialized) {
+			//this->G4mgr->ReinitializeGeometry();
+		}
+		else {
+			glm::quat source_rotation = World::Get()->get_radiation_source()->getRotation();
+
+			const glm::vec3 source_position = World::Get()->get_radiation_source()->getLocation();
+			const float source_center_distance = glm::length(source_position);
+			
+			for (auto& m : this->meshes) {
+				if (m->isSource()) {
+					const glm::quat m_rot = m->getRotation();
+					const glm::vec2 m_rot_offset_radians = m->getSourceRotationOffset();
+					glm::quat m_rot_offset = glm::angleAxis(glm::radians(m_rot_offset_radians.x), glm::vec3(0.f, 1.f, 0.f)) * glm::angleAxis(glm::radians(m_rot_offset_radians.y), glm::vec3(1.f, 0.f, 0.f));
+					const glm::vec3 m_pos = m->getPosition();
+					m->setRotation(
+						m_rot * m_rot_offset * source_rotation
+					);
+					if (glm::length(m_pos) != 0.f) {
+						m->setPosition(m_pos + glm::normalize(-m_pos) * (source_center_distance + m->getSourceConcentricDistance()));
+					}
+					else {
+						m->setPosition(glm::normalize(-source_position) * (source_center_distance + m->getSourceConcentricDistance()));
+					}
+				}
+			}
+
+			this->G4mgr->SetUserInitialization(new G4SceneConstructor(this->meshes));
+		}
+	}
+
 	if (World::Get()->get_radiation_field_detector().get() == NULL) {
 		auto rad_det = std::make_shared<G4RadiationFieldDetector>(
 			this->radiation_field_resolution.radiation_field_dimensions,
@@ -99,9 +133,9 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 
 void RadiationSimulation::G4RadiationSimulationHandler::display_gui()
 {
-	G4cout << "Displaying GUI..." << G4endl;
 #ifdef WITH_GEANT4_UIVIS
-	auto ui = std::make_unique<G4UIExecutive>(0, NULL); // Use unique_ptr
+	G4cout << "Displaying GUI..." << G4endl;
+	auto ui = std::unique_ptr<G4UIExecutive>(new G4UIExecutive(0, NULL)); // Use unique_ptr
 	this->has_ui = true;
 	this->G4VisManager = std::make_unique<G4VisExecutive>();
 	this->G4VisManager->Initialize();
@@ -110,6 +144,8 @@ void RadiationSimulation::G4RadiationSimulationHandler::display_gui()
 	this->G4UIManager->ApplyCommand("/vis/scene/add/trajectories 0");
 	this->G4UIManager->ApplyCommand("/vis/modeling/trajectories/create/drawByParticleID");
 	this->G4UIManager->ApplyCommand("/vis/modeling/trajectories/drawByParticleID-0/set all false");
+#else
+	G4cout << "Can't display GUI as no OpenGL was linked! Skipping!" << G4endl;
 #endif
 	this->finalize();
 #ifdef WITH_GEANT4_UIVIS
@@ -144,10 +180,8 @@ void RadiationSimulation::G4RadiationSimulationHandler::update_gui()
 
 void RadiationSimulation::G4RadiationSimulationHandler::add_geometry(const std::vector<std::shared_ptr<Mesh>>& meshes)
 {
-	this->G4mgr->SetUserInitialization(new G4SceneConstructor(meshes));
-	if (this->run_mgr_initialized) {
-		this->G4mgr->ReinitializeGeometry();
-	}
+	for (auto& m : meshes)
+		this->meshes.push_back(m);
 }
 
 std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::G4RadiationSimulationHandler::simulate_radiation_field(size_t n_particles, RadFiled3D::GridTracerAlgorithm tracing_algorithm)

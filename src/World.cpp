@@ -22,6 +22,6 @@ void RadiationSimulation::World::set_geometries(const std::vector<std::shared_pt
 {
 	this->geometries = geoms;
 	for (auto mesh : this->geometries)
-		if (mesh->is_patient())
+		if (mesh->isPatient())
 			this->patient = mesh;
 }

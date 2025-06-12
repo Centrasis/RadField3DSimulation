@@ -356,7 +356,7 @@ int main(int argc, char* argv[]) {
 	G4cout << "Set X-Ray source rotation (" << source_angle_alpha << "°, " << source_angle_beta << "°)" << G4endl;
 	G4cout << "Set X-Ray source distance to " << source_distance << " m" << G4endl;
 	G4cout << "Set tracking energy maximum to " << max_energy / 1e+3 << "keV" << G4endl;
-	
+
 	glm::quat rotation = glm::angleAxis(glm::radians(source_angle_alpha), glm::vec3(0.f, 1.f, 0.f)) * glm::angleAxis(glm::radians(source_angle_beta), glm::vec3(1.f, 0.f, 0.f));
 	const glm::vec3 source_dir = rotation * glm::vec3(0.f, 0.f, -1.f);
 	source->setTransform(-source_dir * source_distance, source_dir);

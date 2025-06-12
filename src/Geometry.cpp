@@ -9,8 +9,7 @@ using namespace RadiationSimulation;
 Mesh::Mesh(const std::vector<glm::vec3>& vertices, const std::vector<Face*>& faces, const std::string& name)
 	:	vertices(vertices),
 		faces(faces),
-		name(name),
-		rotation(0.f)
+		name(name)
 {
 }
 

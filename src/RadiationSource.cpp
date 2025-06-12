@@ -3,7 +3,6 @@
 #include <string>
 #include <sstream>
 #include <iostream>
-#include <glm/gtc/quaternion.hpp>
 
 
 using namespace RadiationSimulation;
@@ -17,25 +16,23 @@ RadiationSource::RadiationSource(float energy_eV, std::string particle_name, std
 
 void RadiationSource::setTransform(const glm::vec3& location, const glm::vec3& orientation)
 {
-	this->transform = glm::translate(glm::mat4(1.0f), location);
+	this->location = location;
+	this->rotation = glm::quat_cast(glm::mat4(1.0f));
+	const glm::vec3 normalizedOrientation = glm::normalize(orientation);
+	const glm::vec3 up(0.0f, 0.0f, -1.0f);
 
-	glm::vec3 normalizedOrientation = glm::normalize(orientation);
-
-	if (normalizedOrientation == glm::vec3(0.0f, 0.0f, -1.0f)) {
+	if (normalizedOrientation == up) {
 		return;
 	}
-	glm::vec3 up(0.0f, 0.0f, -1.0f);
+	
 	glm::vec3 axis = glm::cross(up, normalizedOrientation);
-	float angle = acos(glm::dot(up, normalizedOrientation));
-	glm::quat rotation = glm::angleAxis(angle, glm::normalize(axis));
-
-	glm::mat4 rotationMatrix = glm::mat4_cast(rotation);
-	this->transform *= rotationMatrix;
+	float angle = acos(glm::clamp(glm::dot(up, normalizedOrientation), -1.0f, 1.0f));
+	this->rotation = glm::angleAxis(angle, glm::normalize(axis));
 }
 
 glm::vec3 RadiationSimulation::RadiationSource::drawRayDirection()
 {
-	return glm::vec3(this->transform * glm::vec4(this->shape->drawRayDirection(), 0.f));
+	return glm::vec3(this->rotation * glm::vec4(this->shape->drawRayDirection(), 0.f));
 }
 
 XRaySource::XRaySource(float energy_eV, std::unique_ptr<ISourceShape> shape)

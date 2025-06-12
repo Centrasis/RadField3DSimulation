@@ -1,8 +1,10 @@
 #pragma once
 #include <vector>
 #include <array>
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <string>
 #include <memory>
 #include "Collisions.h"
@@ -49,10 +51,15 @@ namespace RadiationSimulation {
 		const std::vector<Face*> faces;
 		const std::string name;
 		std::string material_name = "";
-		glm::vec3 rotation = glm::vec3(0.f);
+		glm::quat rotation = glm::quat_cast(glm::mat4(1.f));
 		glm::vec3 position = glm::vec3(0.f);
 		glm::vec3 scale    = glm::vec3(1.f);
 		bool bis_patient = false;
+		struct {
+			bool bis_source = false;
+			float concentric_distance = 0.f;
+			glm::vec2 rotation_offset_degrees = glm::vec2(0.f);
+		} source_info;
 		std::pair<glm::vec3, glm::vec3> bounding_box = { glm::vec3(0.f), glm::vec3(0.f) };
 		std::vector<std::shared_ptr<Mesh>> children;
 
@@ -67,9 +74,18 @@ namespace RadiationSimulation {
 
 		const std::vector<Face*>& getFaces() const;
 
-		inline const bool is_patient() const { return this->bis_patient; };
+		inline const bool isPatient() const { return this->bis_patient; };
 
-		void mark_patient() { this->bis_patient = true; };
+		inline const bool isSource() const { return this->source_info.bis_source; };
+		inline const float getSourceConcentricDistance() const { return this->source_info.concentric_distance; };
+		const glm::vec2& getSourceRotationOffset() const { return this->source_info.rotation_offset_degrees; };
+		inline void markAsSource(float concentric_distance, const glm::vec2& rotation_offset_degrees) {
+			this->source_info.bis_source = true;
+			this->source_info.concentric_distance = concentric_distance;
+			this->source_info.rotation_offset_degrees = rotation_offset_degrees;
+		};
+
+		inline void markAsPatient() { this->bis_patient = true; };
 
 		const std::string& getName() const;
 
@@ -83,11 +99,11 @@ namespace RadiationSimulation {
 
 		std::shared_ptr<Collisions::Capsule> getBoundingCapsule() const;
 
-		inline const glm::vec3& getRotation() const {
+		inline const glm::quat& getRotation() const {
 			return this->rotation;
 		};
 
-		inline void setRotation(const glm::vec3& rotation) {
+		inline void setRotation(const glm::quat& rotation) {
 			this->rotation = rotation;
 		}
 

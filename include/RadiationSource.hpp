@@ -2,7 +2,7 @@
 #include <string>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
-#include <glm/mat4x4.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <memory>
 #include <random>
 #include "ProbabilityFunctions.hpp"
@@ -100,7 +100,8 @@ namespace RadiationSimulation {
 	protected:
 		float energy_eV; ///< Energy of the radiation in electron volts.
 		const std::string particle_name; ///< Name of the particle.
-		glm::mat4 transform = glm::mat3(1.f); ///< Transformation matrix.
+		glm::quat rotation = glm::quat_cast(glm::mat3(1.f)); ///< Transformation matrix.
+		glm::vec3 location = glm::vec3(0.f);
 		std::unique_ptr<ISourceShape> shape; ///< Shape of the radiation source.
 	public:
 		/**
@@ -133,13 +134,13 @@ namespace RadiationSimulation {
 		 * @brief Gets the location of the radiation source.
 		 * @return The location as a glm::vec3.
 		 */
-		inline glm::vec3 getLocation() const { return glm::vec3(this->transform[3]); }
+		inline glm::vec3 getLocation() const { return this->location; }
 
 		/**
-		 * @brief Gets the transformation matrix of the radiation source.
+		 * @brief Gets the rotation quaternion of the radiation source.
 		 * @return The transformation matrix.
 		 */
-		inline const glm::mat4& getTransform() const { return this->transform; }
+		inline const glm::quat& getRotation() const { return this->rotation; }
 
 		/**
 		 * @brief Draws a ray direction.

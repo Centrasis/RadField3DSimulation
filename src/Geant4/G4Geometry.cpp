@@ -94,9 +94,11 @@ G4Mesh::G4Mesh(std::shared_ptr<Mesh> mesh, double length_unit)
 		glm::vec3(max.getX(), max.getY(), max.getZ())
 	};
 
-	this->rotation.rotateX(mesh->getRotation().x);
-	this->rotation.rotateY(mesh->getRotation().y);
-	this->rotation.rotateZ(mesh->getRotation().z);
+	glm::vec3 rot_angles = glm::eulerAngles(mesh->getRotation());
+
+	this->rotation.rotateX(rot_angles.x);
+	this->rotation.rotateY(rot_angles.y);
+	this->rotation.rotateZ(rot_angles.z);
 
 	this->position = G4ThreeVector(mesh->position.x, mesh->position.y, mesh->position.z);
 

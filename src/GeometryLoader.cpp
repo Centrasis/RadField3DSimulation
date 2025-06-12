@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <fstream>
+#include <glm/vec2.hpp>
 #if defined _WIN32 || defined _WIN64
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -50,7 +51,7 @@ void SetupMesh(json& mesh_desc, std::shared_ptr<Mesh> mesh, const std::map<std::
         if (is_patient && has_a_patient)
             throw std::runtime_error("A patient mesh was already defined! There cannot be more than one patient!");
         if (is_patient) {
-            mesh->mark_patient();
+            mesh->markAsPatient();
             has_a_patient = true;
         }
     }
@@ -67,6 +68,21 @@ void SetupMesh(json& mesh_desc, std::shared_ptr<Mesh> mesh, const std::map<std::
             SetupMesh(child, child_mesh, all_meshes);
             mesh->addChild(child_mesh);
         }
+    }
+
+    if (mesh_desc.find("Source") != mesh_desc.end() && mesh_desc["Source"] == true) {
+		if (mesh_desc.find("SourceOffsets") == mesh_desc.end()) {
+			throw std::runtime_error("Source mesh with name: \"" + mesh->getName() + "\" must have SourceOffsets defined!");
+		}
+
+		auto& source_offsets_info = mesh_desc["SourceOffsets"];
+		auto& translation_info = source_offsets_info["Translation"];
+		auto& rotation_info = source_offsets_info["Rotation"];
+
+        mesh->markAsSource(
+            translation_info["ConcentricDistance"].get<float>(),
+            glm::vec2(rotation_info["Alpha"].get<float>(), rotation_info["Beta"].get<float>())
+        );
     }
 }
 
