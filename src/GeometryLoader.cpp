@@ -109,7 +109,6 @@ std::vector<std::shared_ptr<Mesh>> GeometryLoader::Load(const std::string& path)
             aiFace& face = raw_mesh->mFaces[fid];
             switch (face.mNumIndices) {
             case 3:
-                //assert(raw_mesh->mNormals);
                 faces[fid] = new TriFace(glm::uvec3(face.mIndices[0], face.mIndices[1], face.mIndices[2]));
                 break;
             case 4:
