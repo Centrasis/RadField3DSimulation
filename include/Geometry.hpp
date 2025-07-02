@@ -58,7 +58,7 @@ namespace RadiationSimulation {
 		struct {
 			bool bis_source = false;
 			float concentric_distance = 0.f;
-			glm::vec2 rotation_offset_degrees = glm::vec2(0.f);
+			glm::vec2 rotation_offset_radians = glm::vec2(0.f);
 		} source_info;
 		std::pair<glm::vec3, glm::vec3> bounding_box = { glm::vec3(0.f), glm::vec3(0.f) };
 		std::vector<std::shared_ptr<Mesh>> children;
@@ -78,11 +78,11 @@ namespace RadiationSimulation {
 
 		inline const bool isSource() const { return this->source_info.bis_source; };
 		inline const float getSourceConcentricDistance() const { return this->source_info.concentric_distance; };
-		const glm::vec2& getSourceRotationOffset() const { return this->source_info.rotation_offset_degrees; };
-		inline void markAsSource(float concentric_distance, const glm::vec2& rotation_offset_degrees) {
+		const glm::vec2& getSourceRotationOffset() const { return this->source_info.rotation_offset_radians; };
+		inline void markAsSource(float concentric_distance, const glm::vec2& rotation_offset_radians) {
 			this->source_info.bis_source = true;
 			this->source_info.concentric_distance = concentric_distance;
-			this->source_info.rotation_offset_degrees = rotation_offset_degrees;
+			this->source_info.rotation_offset_radians = rotation_offset_radians;
 		};
 
 		inline void markAsPatient() { this->bis_patient = true; };

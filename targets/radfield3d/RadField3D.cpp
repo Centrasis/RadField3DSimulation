@@ -65,7 +65,8 @@ void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, f
 
 int main(int argc, char* argv[]) {
 	fs::path geometry_file = "";
-	fs::path spectrum_file;
+	fs::path geometry_desc_file = "";
+	fs::path spectrum_file = "";
 	double xray_energy = 0.0;
 	double max_energy = 0.0;
 	float source_angle_alpha = 0.f;
@@ -90,6 +91,7 @@ int main(int argc, char* argv[]) {
 	if (argc <= 1 || argv[1] == "-h" || argv[1] == "--help") {
 		G4cout << "RadiationField Calculator Help:\nThe following parameters should be passed to this program\n" << G4endl;
 		G4cout << "  --geom: Path to a geometry file" << G4endl;
+		G4cout << "  --geom-desc: Path to a geometry description file. Default: <geom[noExt]>.desc" << G4endl;
 		G4cout << "  --out: Path where the radiation field should be stored" << G4endl;
 		G4cout << "  --max-energy: Maximum Energy of the X-Raytube in eV to expect" << G4endl;
 		G4cout << "  --source-alpha: Y-Rotation of the X-Raytube in deg" << G4endl;
@@ -128,6 +130,16 @@ int main(int argc, char* argv[]) {
 			geometry_file = value;
 			if (!geometry_file.is_absolute())
 				geometry_file = fs::absolute(geometry_file);
+			continue;
+		}
+		if (arg == "--geom-desc") {
+			geometry_desc_file = value;
+			if (geometry_desc_file.empty()) {
+				geometry_desc_file = geometry_file;
+				geometry_desc_file.replace_extension(".desc");
+			}
+			if (!geometry_desc_file.is_absolute())
+				geometry_desc_file = fs::absolute(geometry_desc_file);
 			continue;
 		}
 		if (arg == "--source-shape") {
@@ -302,14 +314,15 @@ int main(int argc, char* argv[]) {
 	G4RadiationSimulationHandler* simulation_handler = static_cast<G4RadiationSimulationHandler*>(RadiationSimulator::initialize(RadiationHandlerType::Geant4MedicalXRay, cpu_count).get());
 	RadiationSimulator::set_world_info(std::make_unique<WorldInfo>(world_material, world_dim));
 
+	std::vector<std::shared_ptr<Mesh>> meshes;
 	if (!geometry_file.empty()) {
 		G4cout << "Attempt to load geometry from: " << geometry_file.string() << G4endl;
-		auto meshes = GeometryLoader::Load(geometry_file.string());
+		if (!geometry_desc_file.empty())
+			G4cout << "Attempt to load geometry description from: " << geometry_desc_file.string() << G4endl;
+		meshes = GeometryLoader::Load(geometry_file.string(), geometry_desc_file.string());
 		G4cout << "Meshes loaded: " << meshes.size() << G4endl;
-		RadiationSimulator::add_geometry(meshes);
 	}
 	else {
-		RadiationSimulator::add_geometry(std::vector<std::shared_ptr<Mesh>>());
 		G4cout << "No geometry file specified! Perfoming empty simulation..." << G4endl;
 	}
 
@@ -361,6 +374,7 @@ int main(int argc, char* argv[]) {
 	const glm::vec3 source_dir = rotation * glm::vec3(0.f, 0.f, -1.f);
 	source->setTransform(-source_dir * source_distance, source_dir);
 	RadiationSimulator::add_radiation_source(source);
+	RadiationSimulator::add_geometry(meshes);
 
 	RadiationSimulator::set_radiation_field_resolution(world_dim, glm::vec3(voxel_dim), max_energy * eV, energy_resolution * eV);
 

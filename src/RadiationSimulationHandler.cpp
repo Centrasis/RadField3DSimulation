@@ -58,19 +58,35 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 			//this->G4mgr->ReinitializeGeometry();
 		}
 		else {
-			glm::quat source_rotation = World::Get()->get_radiation_source()->getRotation();
-
+			// Recreate the original rotation quaternion that was used in RadField3D.cpp
 			const glm::vec3 source_position = World::Get()->get_radiation_source()->getLocation();
 			const float source_center_distance = glm::length(source_position);
+			const glm::vec3 source_dir = glm::normalize(-source_position);  // Note: negative because source points towards center
+			
+			// Calculate spherical angles from the source direction (matching RadField3D.cpp convention)
+			float source_angle_alpha = -atan2(source_dir.x, source_dir.z);   // azimuth around Y-axis
+			if (source_dir.z < 0.f) {
+				source_angle_alpha -= glm::pi<float>();
+			}
+			
+			// Calculate beta with quadrant correction
+			float source_angle_beta = -atan2(source_dir.y, sqrt(source_dir.x * source_dir.x + source_dir.z * source_dir.z));
+			if (source_dir.z >= 0.f) {
+				source_angle_beta -= glm::pi<float>() / 2.f;
+			}
+			
+			// Recreate the exact rotation quaternion from RadField3D.cpp
+			glm::quat original_source_rotation = glm::angleAxis(source_angle_alpha, glm::vec3(0.f, 1.f, 0.f)) * glm::angleAxis(source_angle_beta, glm::vec3(1.f, 0.f, 0.f));
 			
 			for (auto& m : this->meshes) {
 				if (m->isSource()) {
 					const glm::quat m_rot = m->getRotation();
-					const glm::vec2 m_rot_offset_radians = m->getSourceRotationOffset();
-					glm::quat m_rot_offset = glm::angleAxis(glm::radians(m_rot_offset_radians.x), glm::vec3(0.f, 1.f, 0.f)) * glm::angleAxis(glm::radians(m_rot_offset_radians.y), glm::vec3(1.f, 0.f, 0.f));
+					glm::vec2 m_rot_offset_radians = m->getSourceRotationOffset();
+					glm::quat m_rot_offset = glm::angleAxis(m_rot_offset_radians.x, glm::vec3(0.f, 1.f, 0.f)) * glm::angleAxis(m_rot_offset_radians.y, glm::vec3(1.f, 0.f, 0.f));
 					const glm::vec3 m_pos = m->getPosition();
+					// Apply the same rotation as the source with offset
 					m->setRotation(
-						m_rot * m_rot_offset * source_rotation
+						m_rot_offset * original_source_rotation * m_rot
 					);
 					if (glm::length(m_pos) != 0.f) {
 						m->setPosition(m_pos + glm::normalize(-m_pos) * (source_center_distance + m->getSourceConcentricDistance()));

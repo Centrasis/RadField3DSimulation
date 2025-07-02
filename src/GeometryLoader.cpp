@@ -86,7 +86,7 @@ void SetupMesh(json& mesh_desc, std::shared_ptr<Mesh> mesh, const std::map<std::
     }
 }
 
-std::vector<std::shared_ptr<Mesh>> GeometryLoader::Load(const std::string& path)
+std::vector<std::shared_ptr<Mesh>> GeometryLoader::Load(const std::string& path, std::string description_file)
 {
     const aiScene* scene = aiImportFile(path.c_str(), aiProcessPreset_TargetRealtime_MaxQuality);
     if (!scene) {
@@ -123,10 +123,11 @@ std::vector<std::shared_ptr<Mesh>> GeometryLoader::Load(const std::string& path)
         meshes.insert({ m_name, std::make_shared<Mesh>(vertices, faces, m_name) });
     }
 
-    const std::string desc_file_path = path.substr(0, path.find_last_of(".")) + ".desc";
+    if (description_file.size() == 0)
+        description_file = path.substr(0, path.find_last_of(".")) + ".desc";
 
-    if (fs::exists(desc_file_path)) {
-        std::ifstream desc_file(desc_file_path);
+    if (fs::exists(description_file)) {
+        std::ifstream desc_file(description_file);
 
         json data;
         desc_file >> data;

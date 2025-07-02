@@ -92,7 +92,7 @@ std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> RadiationSimulati
 {
 	std::ifstream file(filename);
 	if (!file.is_open()) {
-		throw std::runtime_error("Failed to open file");
+		throw std::runtime_error("Failed to open file: " + filename);
 	}
 
 	std::string line;
