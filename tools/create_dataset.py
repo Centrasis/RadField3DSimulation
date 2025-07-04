@@ -255,6 +255,100 @@ class ParameterizedSampler(ParameterSelector):
         return next(self)
 
 
+class GeometrySampler(object):
+    def __init__(self, geometry_desc_file: str, object_tranformation_ranges: dict):
+        """
+        Initializes the GeometrySampler with a geometry file and transformation ranges.
+        
+        :param geometry_desc_file: Path to the original geometry description file.
+        :param object_tranformation_ranges: Dictionary with transformation ranges for the geometry objects.
+        """
+        self.geometry_desc_file = geometry_desc_file
+        self.object_transformation_ranges = object_tranformation_ranges
+
+    @staticmethod
+    def can_load_from(definition_file: str) -> bool:
+        """
+        Checks if the geometry sampler can be loaded from the given definition file.
+        
+        :param definition_file: Path to the geometry definition file.
+        :return: True if the geometry sampler can be loaded, False otherwise.
+        """
+        if not os.path.exists(definition_file):
+            return False
+        file_content = json.load(open(definition_file, "r"))
+        has_fields = "GeometryTransformations" in file_content and "Metaparameters" in file_content and "GeometryFile" in file_content["Metaparameters"]
+        if not has_fields:
+            return False
+        
+        geometry_desc_file: str = file_content["Metaparameters"]["GeometryFile"]
+        geometry_desc_file = geometry_desc_file.removesuffix(os.path.splitext(geometry_desc_file)[-1]) + ".desc"
+        if not os.path.isabs(geometry_desc_file):
+            geometry_desc_file = os.path.join(os.getcwd(), geometry_desc_file)
+        return os.path.exists(geometry_desc_file) and os.path.isfile(geometry_desc_file) and os.path.getsize(geometry_desc_file) > 0 and "GeometryTransformations" in file_content
+
+    @staticmethod
+    def load_from(definition_file: str) -> "GeometrySampler":
+        """
+        Loads the geometry sampler from a definition file.
+        
+        :param definition_file: Path to the geometry definition file.
+        :return: GeometrySampler instance.
+        """
+        file_content = json.load(open(definition_file, "r"))
+        assert "GeometryTransformations" in file_content, "GeometryTransformations must be defined in the geometry definition file"
+        assert "Metaparameters" in file_content and "GeometryFile" in file_content["Metaparameters"], "GeometryFile must be defined in the geometry definition file"
+        
+        geometry_desc_file: str = file_content["Metaparameters"]["GeometryFile"]
+        geometry_desc_file = geometry_desc_file.removesuffix(os.path.splitext(geometry_desc_file)[-1]) + ".desc"
+        if not os.path.isabs(geometry_desc_file):
+            geometry_desc_file = os.path.join(os.getcwd(), geometry_desc_file)
+
+        return GeometrySampler(
+            geometry_desc_file=geometry_desc_file,
+            object_tranformation_ranges=file_content["GeometryTransformations"]
+        )
+
+    def modify_geometry_desc(self, geometry_desc: dict, target_obj_name: str, new_transformation: dict) -> dict:
+        for obj_name, parameters in geometry_desc.items():
+            if obj_name == target_obj_name:
+                if "Transform" not in parameters:
+                    parameters["Transform"] = {}
+                transform: dict = parameters["Transform"]
+                transform.update(new_transformation)
+                parameters["Transform"] = transform
+                geometry_desc[obj_name] = parameters
+                return geometry_desc 
+            if "Children" in parameters:
+                geometry_desc = self.modify_geometry_desc(parameters["Children"], target_obj_name, new_transformation)
+        return geometry_desc
+
+    def sample_transformations(self, new_geometry_desc_file: str):
+        """
+        Samples random transformations for the geometry objects based on the defined ranges.
+        
+        :param new_geometry_desc_file: Path to the new geometry description file.
+        :return: None
+        """
+        with open(self.geometry_desc_file, "r") as f:
+            content = json.loads(f.read())
+
+        for obj_name, transformations in self.object_transformation_ranges.items():
+            # apply sampling from the transformation range
+            transformation = transformations.copy()
+            for key in transformation.keys():
+                for axis in transformation[key].keys():
+                    transformation[key][axis] = random.uniform(transformation[key][axis][0], transformation[key][axis][1])
+
+            content = self.modify_geometry_desc(content, obj_name, transformation)
+
+        content = json.dumps(content, indent=4)
+        if os.path.exists(new_geometry_desc_file):
+            os.remove(new_geometry_desc_file)
+        with open(new_geometry_desc_file, "w") as f:
+            f.write(content)
+
+
 def write_spectum_file(src_file: str, out_path: str):
     if not os.path.exists(os.path.dirname(out_path)):
         try:
@@ -406,6 +500,10 @@ if __name__ == "__main__":
     
     if dataset_definition_file is not None:
         parameters = ParameterizedSampler.load_from(dataset_definition_file)
+
+    geometry_sampler = None
+    if GeometrySampler.can_load_from(dataset_definition_file):
+        geometry_sampler = GeometrySampler.load_from(dataset_definition_file)
     
     # Seed from hostname and current datetime
     random.seed(hash(platform.node() + str(datetime.datetime.now().timestamp())))
@@ -520,6 +618,19 @@ if __name__ == "__main__":
                     geometry_file = param.value
                     if not os.path.isabs(geometry_file):
                         geometry_file = os.path.join(os.getcwd(), geometry_file)
+                    geometry_desc_file = geometry_file.removesuffix(os.path.splitext(geometry_file)[-1]) + ".desc"
+                    new_geometry_desc_file = os.path.join(out_dir, "geom_desc", f"{nb_sample:04d}.desc")
+                    if not os.path.exists(os.path.dirname(new_geometry_desc_file)):
+                        os.makedirs(os.path.dirname(new_geometry_desc_file))
+                    if not os.path.exists(geometry_desc_file):
+                        geometry_desc_file = None
+                    elif geometry_sampler is None:
+                        shutil.copyfile(geometry_desc_file, new_geometry_desc_file)
+                        geometry_desc_file = new_geometry_desc_file
+                    else:
+                        geometry_sampler.sample_transformations(new_geometry_desc_file)
+                        geometry_desc_file = new_geometry_desc_file
+                    
                 elif param.name == "tracer_algorithm":
                     tracer_algorithm = param.value
                 elif param.name == "bin_count":
@@ -601,6 +712,12 @@ if __name__ == "__main__":
                 additional_options.append("--cpu-count")
                 additional_options.append(f"{USED_CPU_CORES}")
 
+            geom_args = []
+            if geometry_file != '':
+                geom_args = ["--geom", geometry_file]
+                if geometry_desc_file is not None and os.path.exists(geometry_desc_file):
+                    geom_args += ["--geom-desc", geometry_desc_file]
+
             cmd_args = [
                         binary_path,
                         "--out", out_path,
@@ -616,7 +733,7 @@ if __name__ == "__main__":
                         "--source-opening-angle", f"{source_opening_angle}",
                         "--tracing-algorithm", f"{tracer_algorithm}",
                         "--world-material", world_material,
-                    ] + additional_options + spec_args + (["--geom", geometry_file] if geometry_file != '' else [])
+                    ] + additional_options + spec_args + geom_args
 
             if cluster_should_generate_batch:
                 err = None
