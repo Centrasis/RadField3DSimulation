@@ -370,8 +370,17 @@ int main(int argc, char* argv[]) {
 	G4cout << "Set X-Ray source distance to " << source_distance << " m" << G4endl;
 	G4cout << "Set tracking energy maximum to " << max_energy / 1e+3 << "keV" << G4endl;
 
-	glm::quat rotation = glm::angleAxis(glm::radians(source_angle_alpha), glm::vec3(0.f, 1.f, 0.f)) * glm::angleAxis(glm::radians(source_angle_beta), glm::vec3(1.f, 0.f, 0.f));
-	const glm::vec3 source_dir = rotation * glm::vec3(0.f, 0.f, -1.f);
+	// Create rotation quaternions:
+	// - Alpha: rotation in XZ plane (around Y axis)
+	// - Beta: rotation in YZ plane (around X axis)
+	// Apply alpha first (XZ plane), then beta (YZ plane)
+	glm::quat alpha_rotation = glm::angleAxis(glm::radians(source_angle_alpha), glm::vec3(0.f, 1.f, 0.f));
+	glm::quat beta_rotation = glm::angleAxis(glm::radians(source_angle_beta), glm::vec3(1.f, 0.f, 0.f));
+	glm::quat combined_rotation = beta_rotation * alpha_rotation;
+	
+	// Start with direction pointing toward center (negative Z direction)
+	// and apply the combined rotation
+	const glm::vec3 source_dir = combined_rotation * glm::vec3(0.f, 0.f, -1.f);
 	source->setTransform(-source_dir * source_distance, source_dir);
 	RadiationSimulator::add_radiation_source(source);
 	RadiationSimulator::add_geometry(meshes);

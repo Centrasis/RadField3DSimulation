@@ -338,7 +338,19 @@ class GeometrySampler(object):
             transformation = transformations.copy()
             for key in transformation.keys():
                 for axis in transformation[key].keys():
-                    transformation[key][axis] = random.uniform(transformation[key][axis][0], transformation[key][axis][1])
+                    val_range = transformation[key][axis]
+                    if isinstance(val_range, (list, tuple)) and len(val_range) > 0:
+                        val_range = val_range if len(val_range) >= 2 else [val_range[0], val_range[0]]
+                        # Sample a random value from the range
+                        if isinstance(val_range[0], int):
+                            transformation[key][axis] = random.randint(val_range[0], val_range[1])
+                        elif isinstance(val_range[0], float):
+                            transformation[key][axis] = random.uniform(val_range[0], val_range[1])
+                    elif isinstance(val_range, (int, float)):
+                        # If it's a single value, just use it
+                        transformation[key][axis] = val_range
+                    else:
+                        raise Exception(f"Invalid transformation range for {obj_name} {key} {axis}: {val_range}. Must be a list of two values or a single value.")
 
             content = self.modify_geometry_desc(content, obj_name, transformation)
 
