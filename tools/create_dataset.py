@@ -671,7 +671,7 @@ if __name__ == "__main__":
                     spec_csv_file = spectra_path
                     energy = 0.0
                 else:
-                    raise Exception(f"Spectra file was not valid: {spec_file}")
+                    raise Exception(f"Spectra file path was not valid: {spectra_path}")
 
                 if spec_csv_file is None:
                     info_file = spec_file.removesuffix(".spectrum") + ".info"
