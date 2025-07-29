@@ -5,6 +5,8 @@ import random
 from typing import List, Union
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from rich import print
+from RadFiled3D.RadFiled3D import CartesianRadiationField, FieldStore, DType
+import numpy as np
 import argparse
 import torch
 import json
@@ -13,6 +15,7 @@ from typing import NamedTuple
 from logging import getLogger
 import datetime
 import platform
+from helpers.voxelization import VoxelizationHelper
 
 
 pattern_energy = re.compile(r"Set X-Ray source energy to: ([\de\+\-]+)eV")
@@ -381,6 +384,25 @@ def write_spectum_file(src_file: str, out_path: str):
         f.write(f"Energy[eV]    Fluence[]")
         for i in range(len(energies)):
             f.write(f"\n{energies[i] * 1000}    {fluence[i]}")
+
+
+def write_voxelized_geometry_to_field(voxel_grid: np.ndarray, field: CartesianRadiationField, file_name: str):
+    if not field.has_channel("geometry"):
+        geom_channel = field.add_channel("geometry")
+    else:
+        geom_channel = field.get_channel("geometry")
+
+    if "density" not in geom_channel.get_layers():
+        geom_channel.add_layer("density", "Density", DType.BYTE)
+
+    density_layer = geom_channel.get_layer_as_ndarray("density")
+    density_layer[:, :, :] = 0.0
+    density_layer[voxel_grid] = 127
+    FieldStore.store(
+        field,
+        FieldStore.load_metadata(file_name),
+        file_name
+    )
 
 
 if __name__ == "__main__":
@@ -785,6 +807,16 @@ if __name__ == "__main__":
                             f.write(err)
             if not cluster_should_generate_batch:
                 print(f"[white]Field was written to -> [green]{out_path}" if os.path.exists(out_path) else f"[white]Field was [red]not [white]written to -> [red]{out_path}")
+                if os.path.exists(out_path):
+                    field = FieldStore.load(out_path)
+                    if field is not None and geometry_file != '':
+                        voxel_grid = VoxelizationHelper.generate_voxelgrid_with_geometry(
+                            geom_file=geometry_file,
+                            voxel_size=voxel_size,
+                            grid_size=(int(world_size[0] / voxel_size), int(world_size[1] / voxel_size), int(world_size[2] / voxel_size)),
+                            description_file=geometry_desc_file if geometry_desc_file is not None and os.path.exists(geometry_desc_file) else None
+                        )
+                        write_voxelized_geometry_to_field(voxel_grid, field, out_path)
         if cluster_should_generate_batch:
             if cluster_type == "slurm":
                 with open(cluster_batch_file_name, "a") as f:

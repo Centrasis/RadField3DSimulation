@@ -107,6 +107,10 @@ namespace RadiationSimulation {
 			this->rotation = rotation;
 		}
 
+		inline void setRotation(const glm::vec3& rotation) {
+			this->rotation = glm::quat_cast(glm::mat4(1.f) * glm::rotate(glm::mat4(1.f), rotation.x, glm::vec3(1.f, 0.f, 0.f)) * glm::rotate(glm::mat4(1.f), rotation.y, glm::vec3(0.f, 1.f, 0.f)) * glm::rotate(glm::mat4(1.f), rotation.z, glm::vec3(0.f, 0.f, 1.f)));
+		}
+
 		inline const glm::vec3& getPosition() const {
 			return this->position;
 		};
