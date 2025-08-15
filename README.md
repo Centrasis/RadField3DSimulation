@@ -123,7 +123,8 @@ Example:
 With `mesh_name` and `child_name_name` name being the name of the mesh as exported by the geometry file. MaterialName can be one of the Geant4 Materials, but it is more error prune as `Water` will be corrected to `G4_WATER`, if the prior was not a valid material.
 
 ### Using the DatasetGenerator
-After installing the needed pyTorch (CPU or CUDA version doesn't matter), one can call the DatasetGenerator from `./tools/create_dataset.py`. The arguments are working similar like the direct RadField3D parameters, but slightly extended.
+After installing the needed pyTorch (CPU or CUDA version doesn't matter) and other required modules (from `requirements.txt`), one can call the DatasetGenerator from `./tools/create_dataset.py`. Using the generator allows to automatically embed the used geometry in the form of a binary mask into the created rf3-files.
+The arguments of the generator are working similar like the direct RadField3D parameters, but slightly extended.
 
 Parameters:
 - *dest*: Distination path to a folder, where the fields will be stored to.

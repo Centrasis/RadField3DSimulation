@@ -1,0 +1,6 @@
+numpy>=2.3.0
+rich>=13.9.0
+torch>=2.0.0
+RadFiled3D>=1.0.0
+trimesh>=4.7.0
+rtree>=1.4.0
