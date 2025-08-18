@@ -813,6 +813,9 @@ if __name__ == "__main__":
                 if os.path.exists(out_path):
                     field = FieldStore.load(out_path)
                     if field is not None and geometry_file != '':
+                        if not os.path.exists(geometry_file):
+                            getLogger().warning(f"Geometry file {geometry_file} does not exist! Skipping voxelization.")
+                            continue
                         voxel_grid = VoxelizationHelper.generate_voxelgrid_with_geometry(
                             geom_file=geometry_file,
                             voxel_size=voxel_size,

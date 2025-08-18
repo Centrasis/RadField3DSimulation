@@ -70,9 +70,9 @@ class VoxelizationHelper:
                 geom_description[mesh_name]["Transform"]["Translation"]["Z"]
             ])
             mesh.apply_translation(mesh_translation)
-        x = np.arange(grid_size[0]) * grid_dimensions[0] + grid_dimensions[0] / 2.0
-        y = np.arange(grid_size[1]) * grid_dimensions[1] + grid_dimensions[1] / 2.0
-        z = np.arange(grid_size[2]) * grid_dimensions[2] + grid_dimensions[2] / 2.0
+        x = (np.arange(grid_size[0]) * voxel_size[0] + voxel_size[0] / 2.0)
+        y = (np.arange(grid_size[1]) * voxel_size[1] + voxel_size[1] / 2.0)
+        z = (np.arange(grid_size[2]) * voxel_size[2] + voxel_size[2] / 2.0)
         xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
         points = np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]).T
 
