@@ -387,6 +387,9 @@ def write_spectum_file(src_file: str, out_path: str):
 
 
 def write_voxelized_geometry_to_field(voxel_grid: np.ndarray, field: CartesianRadiationField, file_name: str):
+    if not voxel_grid.any():
+        print(f"[yellow]WARNING: No geometry found for file {file_name}! This maybe an error.[/yellow]")
+
     if not field.has_channel("geometry"):
         geom_channel = field.add_channel("geometry")
     else:
@@ -396,7 +399,7 @@ def write_voxelized_geometry_to_field(voxel_grid: np.ndarray, field: CartesianRa
         geom_channel.add_layer("density", "Density", DType.BYTE)
 
     density_layer = geom_channel.get_layer_as_ndarray("density")
-    density_layer[:, :, :] = 0.0
+    density_layer[:, :, :] = 0
     density_layer[voxel_grid] = 127
     FieldStore.store(
         field,
