@@ -17,6 +17,7 @@ import datetime
 import platform
 from helpers.voxelization import VoxelizationHelper
 import uuid
+from copy import deepcopy
 
 
 pattern_energy = re.compile(r"Set X-Ray source energy to: ([\de\+\-]+)eV")
@@ -327,19 +328,15 @@ class GeometrySampler(object):
                 geometry_desc = self.modify_geometry_desc(parameters["Children"], target_obj_name, new_transformation)
         return geometry_desc
 
-    def sample_transformations(self, new_geometry_desc_file: str):
+    def _sample_transformation_per_object(self) -> dict:
         """
-        Samples random transformations for the geometry objects based on the defined ranges.
-        
-        :param new_geometry_desc_file: Path to the new geometry description file.
-        :return: None
+        Just draws a random sample from the given transformation dictionary.
+        Is called from sample_transformations.
         """
-        with open(self.geometry_desc_file, "r") as f:
-            content = json.loads(f.read())
-
+        out_transformations = {}
         for obj_name, transformations in self.object_transformation_ranges.items():
             # apply sampling from the transformation range
-            transformation = transformations.copy()
+            transformation = deepcopy(transformations)
             for key in transformation.keys():
                 for axis in transformation[key].keys():
                     val_range = transformation[key][axis]
@@ -355,7 +352,20 @@ class GeometrySampler(object):
                         transformation[key][axis] = val_range
                     else:
                         raise Exception(f"Invalid transformation range for {obj_name} {key} {axis}: {val_range}. Must be a list of two values or a single value.")
+            out_transformations[obj_name] = transformation
+        return out_transformations
 
+    def sample_transformations(self, new_geometry_desc_file: str):
+        """
+        Samples random transformations for the geometry objects based on the defined ranges.
+        
+        :param new_geometry_desc_file: Path to the new geometry description file.
+        :return: None
+        """
+        with open(self.geometry_desc_file, "r") as f:
+            content = json.loads(f.read())
+
+        for obj_name, transformation in self._sample_transformation_per_object().items():
             content = self.modify_geometry_desc(content, obj_name, transformation)
 
         content = json.dumps(content, indent=4)
@@ -365,7 +375,7 @@ class GeometrySampler(object):
             f.write(content)
 
 
-def write_spectum_file(src_file: str, out_path: str):
+def write_spectrum_file(src_file: str, out_path: str):
     if not os.path.exists(os.path.dirname(out_path)):
         try:
             os.makedirs(os.path.dirname(out_path))
@@ -712,7 +722,7 @@ if __name__ == "__main__":
                     energy = float(info["energy"])
 
                     spec_csv_file = os.path.join(out_dir, "spectra", os.path.basename(spec_file).removesuffix(".spectrum") + ".csv")
-                    write_spectum_file(
+                    write_spectrum_file(
                         src_file=spec_file,
                         out_path=spec_csv_file
                     )
