@@ -16,6 +16,7 @@ from logging import getLogger
 import datetime
 import platform
 from helpers.voxelization import VoxelizationHelper
+import uuid
 
 
 pattern_energy = re.compile(r"Set X-Ray source energy to: ([\de\+\-]+)eV")
@@ -432,6 +433,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_definition", default=None, type=str, nargs=1, required=False, help="Path to a dataset definition file that should be used. (Overrides energy/angle7/source_distance/source_shape/source_opening_angle sampling, energy_resolution, ...)")
     parser.add_argument("--error_logs", default=None, type=str, nargs=1, required=False, help="Path to a folder where the error logs should be stored. Defaults to None which means console output only.")
     parser.add_argument("--cpu_count", default=-1, type=int, nargs=1, required=False, help="Number of CPU cores to use for the calculation. Defaults to -1 which means all available cores.")
+    parser.add_argument("--random_names", default=False, action="store_true", required=False, help="Use random names for the output fields instead of numbered ones. This is useful if multiple dataset creation processes are running in parallel and independent from each other.")
 
     subcommands = parser.add_subparsers(title="Subcommands", description="valid subcommands", help="")
     cluster_parser = subcommands.add_parser("cluster", help="Cluster mode")
@@ -443,7 +445,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    USED_CPU_CORES = args.cpu_count[0] if isinstance(args.cpu_count, list) else args.cpu_count
+    USED_CPU_CORES: int = args.cpu_count[0] if isinstance(args.cpu_count, list) else args.cpu_count
+    USE_RANDOM_NAMES: bool = args.random_names
 
     out_dir: str = args.dest[0] if isinstance(args.dest, list) else args.dest
     n_sample_fields: int = args.fields[0] if isinstance(args.fields, list) else args.fields
@@ -588,23 +591,24 @@ if __name__ == "__main__":
 
     Emax = parameters.get_max_energy()
 
-    preexisting_samples = [f for f in os.listdir(os.path.join(out_dir, "fields")) if f.endswith(".rf3")] if os.path.exists(os.path.join(out_dir, "fields")) else []
-    try:
-        preexisting_samples = [int(f.removesuffix(".rf3")) for f in preexisting_samples]
-        preexisting_samples_max_nb = (max(preexisting_samples) + 1) if len(preexisting_samples) > 0 else 0
-    except:
-        getLogger().warning("Could not parse preexisting samples! Was not a standard dataset naming convention.")
-        preexisting_samples_max_nb = 0
+    preexisting_samples_max_nb = 0
+    if not USE_RANDOM_NAMES:
+        preexisting_samples = [f for f in os.listdir(os.path.join(out_dir, "fields")) if f.endswith(".rf3")] if os.path.exists(os.path.join(out_dir, "fields")) else []
+        try:
+            preexisting_samples = [int(f.removesuffix(".rf3")) for f in preexisting_samples]
+            preexisting_samples_max_nb = (max(preexisting_samples) + 1) if len(preexisting_samples) > 0 else 0
+        except:
+            getLogger().warning("Could not parse preexisting samples! Was not a standard dataset naming convention.")
 
-    if cluster_node_partition is not None:
-        parameters = [p for p in parameters]
-        min_idx = cluster_node_partition[1] * (len(parameters) // cluster_node_partition[0])
-        max_idx = (cluster_node_partition[1] + 1) * (len(parameters) // cluster_node_partition[0])
-        max_idx = min(max_idx, len(parameters))
-        if cluster_node_partition[1] + 1 >= cluster_node_partition[0]:
-            max_idx = len(parameters)
-        parameters = parameters[min_idx:max_idx]
-        preexisting_samples_max_nb += min_idx
+        if cluster_node_partition is not None:
+            parameters = [p for p in parameters]
+            min_idx = cluster_node_partition[1] * (len(parameters) // cluster_node_partition[0])
+            max_idx = (cluster_node_partition[1] + 1) * (len(parameters) // cluster_node_partition[0])
+            max_idx = min(max_idx, len(parameters))
+            if cluster_node_partition[1] + 1 >= cluster_node_partition[0]:
+                max_idx = len(parameters)
+            parameters = parameters[min_idx:max_idx]
+            preexisting_samples_max_nb += min_idx
 
     cluster_batch_file_name = ""
     if cluster_should_generate_batch:
@@ -636,6 +640,7 @@ if __name__ == "__main__":
             spectra_path = None
             world_material = "Air"
             nb_sample += preexisting_samples_max_nb
+            out_file_basename = str(uuid.uuid4()).replace('-', '') if USE_RANDOM_NAMES else f"{nb_sample:04d}"
             for param in sample_parameters:
                 if param.name == "energy":
                     energy = param.value
@@ -656,7 +661,7 @@ if __name__ == "__main__":
                     if not os.path.isabs(geometry_file):
                         geometry_file = os.path.join(os.getcwd(), geometry_file)
                     geometry_desc_file = geometry_file.removesuffix(os.path.splitext(geometry_file)[-1]) + ".desc"
-                    new_geometry_desc_file = os.path.join(out_dir, "geom_desc", f"{nb_sample:04d}.desc")
+                    new_geometry_desc_file = os.path.join(out_dir, "geom_desc", f"{out_file_basename}.desc")
                     if not os.path.exists(os.path.dirname(new_geometry_desc_file)):
                         os.makedirs(os.path.dirname(new_geometry_desc_file))
                     if not os.path.exists(geometry_desc_file):
@@ -718,8 +723,7 @@ if __name__ == "__main__":
                     "--spectrum", spec_csv_file
                 ]
 
-            #out_name = f"RF_{'{:1.1f}'.format(energy/1000)}keV_{alpha}_{beta}_{os.path.basename(os.path.splitext(geometry_file)[0])}.rf3"
-            out_name = f"{nb_sample:04d}.rf3"
+            out_name = f"{out_file_basename}.rf3"
             progress.update(sampling_task, description=f"Calculating field: {out_name}...")
             out_path = os.path.normpath(os.path.join(out_dir, "fields", out_name))
 
