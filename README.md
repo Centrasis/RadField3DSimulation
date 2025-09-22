@@ -300,7 +300,7 @@ Additionally, ``MaterialSolver::init_custom_materials()`` from [``G4SceneConstru
 | ---- | ----------- |
 | Polyamide | 57% H, 31% C, 5% N, 5% O ; ρ = 1.14 g/cm^3 |
 | CarbonFiber | 60% C, 40% Epoxy ; ρ = 1.6 g/cm^3 |
-| Spongiosa | Approximating ICRU Report 46 ; ρ = 1.1 g/cm^3 |
+| ThoraticSpongiosa | Approximating ICRU Report 46 for the Thoratic spine ; ρ = 1.074 g/cm^3 |
 
 ## Viewing and Exploring Datasets
 For viewing the results of the simulation and analyzing whole datasets, we provide the so called `RadFiled3DExplorer`. That little python program offers a GUI to view radiation fields generated with our simulation software. You find the project [here](https://github.com/Centrasis/RadFiled3DExplorer).
