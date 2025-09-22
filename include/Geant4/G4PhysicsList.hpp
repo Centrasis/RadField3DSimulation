@@ -19,13 +19,9 @@
 class MedicalPhysicsList : public QGSP_BIC_HP { // QGSP_BIC
 protected:
     G4EmStandardPhysics_option4* emPhysicsList;
-	/*G4EmExtraPhysics* emExtraPhysics;
-	G4EmLowEPPhysics* emLowEPPhysics;*/
 public:
     MedicalPhysicsList()
         :   emPhysicsList(new G4EmStandardPhysics_option4()),
-		    /*emExtraPhysics(new G4EmExtraPhysics()),
-		    emLowEPPhysics(new G4EmLowEPPhysics()),*/
             QGSP_BIC_HP() // QGSP_BIC
     {
         size_t i = 0;
@@ -55,11 +51,5 @@ public:
         if (!found_g4_phys_list) {
             RegisterPhysics(this->emPhysicsList);
         }
-        /*if (!found_extra_phys) {
-            RegisterPhysics(this->emExtraPhysics);
-        }
-		if (!found_low_ep_phys) {
-			RegisterPhysics(this->emLowEPPhysics);
-		}*/
     }
 };

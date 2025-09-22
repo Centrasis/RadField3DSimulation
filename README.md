@@ -16,6 +16,7 @@ The validation dataset (measured and simulated) is available here:
   - [Using the DatasetGenerator](#using-the-datasetgenerator)
     - [Example of a dataset definition file](#example-of-a-dataset-definition-file)
     - [Example of a sequence file](#example-of-a-sequence-file)
+- [Materials](#materials)
 - [Viewing and Exploring Datasets](#viewing-and-exploring-datasets)
 
 ## Getting Started
@@ -290,6 +291,16 @@ Please note, that the dataset generator tool only requires the __energy__ field 
     ]
 }
 ```
+
+## Materials
+You can specify any material included into Geant4 from the NIST Materials Database.
+
+Additionally, ``MaterialSolver::init_custom_materials()`` from [``G4SceneConstructor.cpp``](./src/Geant4/G4SceneConstructor.cpp) exports the following additional Materials.
+| Name | Composition |
+| ---- | ----------- |
+| Polyamide | 57% H, 31% C, 5% N, 5% O ; ρ = 1.14 g/cm^3 |
+| CarbonFiber | 60% C, 40% Epoxy ; ρ = 1.6 g/cm^3 |
+| Spongiosa | Approximating ICRU Report 46 ; ρ = 1.1 g/cm^3 |
 
 ## Viewing and Exploring Datasets
 For viewing the results of the simulation and analyzing whole datasets, we provide the so called `RadFiled3DExplorer`. That little python program offers a GUI to view radiation fields generated with our simulation software. You find the project [here](https://github.com/Centrasis/RadFiled3DExplorer).

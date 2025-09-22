@@ -101,6 +101,11 @@ void RadiationSimulation::MaterialSolver::init_custom_materials()
 	G4Element* C = MaterialSolver::nist_man->FindOrBuildElement("C");
 	G4Element* N = MaterialSolver::nist_man->FindOrBuildElement("N");
 	G4Element* O = MaterialSolver::nist_man->FindOrBuildElement("O");
+	G4Element* P = MaterialSolver::nist_man->FindOrBuildElement("P");
+	G4Element* Ca = MaterialSolver::nist_man->FindOrBuildElement("Ca");
+	G4Element* Mg = MaterialSolver::nist_man->FindOrBuildElement("Mg");
+	G4Element* Na = MaterialSolver::nist_man->FindOrBuildElement("Na");
+	G4Element* K = MaterialSolver::nist_man->FindOrBuildElement("K");
 
 	G4Material* Polyamide = new G4Material("Polyamide", 1.14 * g / cm3, 4);
 	Polyamide->AddElement(H, 11);
@@ -109,6 +114,45 @@ void RadiationSimulation::MaterialSolver::init_custom_materials()
 	Polyamide->AddElement(O, 1);
 
 	MaterialSolver::custom_materials["Polyamide"] = Polyamide;
+
+	auto nist = G4NistManager::Instance();
+	auto carbonFiber = nist->FindMaterial("G4_CARBON_FIBER");
+	if (carbonFiber == nullptr) {
+		carbonFiber = G4Material::GetMaterial("G4_CARBON_FIBER", false);
+
+		if (carbonFiber == nullptr) {
+			G4cout << "Creating CarbonFiber material as it is not present in this Geant4 version" << G4endl;
+			carbonFiber = new G4Material("CarbonFiber", 1.60 * g / cm3, 2);
+			G4Material* GraphiteCarbon = new G4Material("GraphiteCarbon", 1.80 * g / cm3, 1);
+			GraphiteCarbon->AddElement(C, 1.0);
+			G4Material* Epoxy = new G4Material("Epoxy", 1.20 * g / cm3, 3);
+			carbonFiber->AddMaterial(GraphiteCarbon, 0.60);
+			carbonFiber->AddMaterial(Epoxy, 0.40);
+
+			MaterialSolver::custom_materials["CarbonFiber"] = carbonFiber;
+		}
+	}
+
+	auto spongiosa = nist->FindMaterial("G4_SPONGIOSA");
+	if (spongiosa == nullptr) {
+		spongiosa = G4Material::GetMaterial("G4_SPONGIOSA", false);
+		if (spongiosa == nullptr) {
+			// Aproximate composition from ICRU Report 46, ICRP Publ. 110
+			G4cout << "Creating Spongiosa material as it is not present in this Geant4 version" << G4endl;
+			spongiosa = new G4Material("Spongiosa", 1.10 * g / cm3, 9);
+			spongiosa->AddElement(H, 0.055);
+			spongiosa->AddElement(C, 0.185);
+			spongiosa->AddElement(N, 0.035);
+			spongiosa->AddElement(O, 0.420);
+			spongiosa->AddElement(P, 0.065);
+			spongiosa->AddElement(Ca, 0.205);
+			spongiosa->AddElement(Mg, 0.010);
+			spongiosa->AddElement(Na, 0.010);
+			spongiosa->AddElement(K, 0.015);
+
+			MaterialSolver::custom_materials["Spongiosa"] = spongiosa;
+		}
+	}
 }
 
 G4Material* MaterialSolver::get_material(const G4String& name)
@@ -118,20 +162,27 @@ G4Material* MaterialSolver::get_material(const G4String& name)
 	if (material_name.substr(0, 2) != "G4") {
 		material_name = G4String("G4_") + material_name;
 	}
-	G4Material* mat = NULL;
+	G4Material* mat = nullptr;
 	try {
 		mat = MaterialSolver::get_nist_man()->FindOrBuildMaterial(material_name);
 	}
 	catch (std::runtime_error&) {
 	}
-	if (mat == NULL) {
+	if (mat == nullptr) {
 		try {
 			mat = MaterialSolver::get_nist_man()->FindOrBuildMaterial(name);
 		}
 		catch (std::runtime_error&) {
 		}
 	}
-	if (mat == NULL) {
+	if (mat == nullptr) {
+		mat = G4Material::GetMaterial(material_name, false);
+	}
+	if (mat == nullptr) {
+		mat = G4Material::GetMaterial(name, false);
+	}
+
+	if (mat == nullptr) {
 		auto found = MaterialSolver::custom_materials.find(name);
 		if (found == MaterialSolver::custom_materials.end())
 			throw std::runtime_error("Material '" + name + "' could not be found!");
