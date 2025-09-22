@@ -106,6 +106,9 @@ void RadiationSimulation::MaterialSolver::init_custom_materials()
 	G4Element* Mg = MaterialSolver::nist_man->FindOrBuildElement("Mg");
 	G4Element* Na = MaterialSolver::nist_man->FindOrBuildElement("Na");
 	G4Element* K = MaterialSolver::nist_man->FindOrBuildElement("K");
+	G4Element* S = MaterialSolver::nist_man->FindOrBuildElement("S");
+	G4Element* Cl = MaterialSolver::nist_man->FindOrBuildElement("Cl");
+	G4Element* Fe = MaterialSolver::nist_man->FindOrBuildElement("Fe");
 
 	G4Material* Polyamide = new G4Material("Polyamide", 1.14 * g / cm3, 4);
 	Polyamide->AddElement(H, 11);
@@ -141,15 +144,19 @@ void RadiationSimulation::MaterialSolver::init_custom_materials()
 	// from: https://gitlab.cern.ch/geant4/geant4/-/blob/master/examples/advanced/ICRP110_HumanPhantoms/src/ICRP110PhantomMaterial_Male.cc
 	G4cout << "Creating Spongiosa material as it is not present in this Geant4 version" << G4endl;
 	auto spongiosa = new G4Material("ThoraticSpongiosa", 1.074 * g / cm3, 9);
-	spongiosa->AddElement(H, 0.055);
-	spongiosa->AddElement(C, 0.185);
-	spongiosa->AddElement(N, 0.035);
-	spongiosa->AddElement(O, 0.420);
-	spongiosa->AddElement(P, 0.065);
-	spongiosa->AddElement(Ca, 0.205);
+	spongiosa->AddElement(H,  0.099);
+	spongiosa->AddElement(C,  0.376);
+	spongiosa->AddElement(N,  0.027);
+	spongiosa->AddElement(O,  0.459);
+	spongiosa->AddElement(P,  0.012);
+	spongiosa->AddElement(Ca, 0.020);
 	spongiosa->AddElement(Mg, 0.010);
-	spongiosa->AddElement(Na, 0.010);
-	spongiosa->AddElement(K, 0.015);
+	spongiosa->AddElement(Na, 0.001);
+	spongiosa->AddElement(K,  0.001);
+	spongiosa->AddElement(S, 0.002);
+	spongiosa->AddElement(Cl, 0.002);
+	spongiosa->AddElement(Fe, 0.001);
+
 
 	MaterialSolver::custom_materials["ThoraticSpongiosa"] = spongiosa;
 }
