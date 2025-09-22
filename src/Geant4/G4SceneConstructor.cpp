@@ -126,9 +126,9 @@ void RadiationSimulation::MaterialSolver::init_custom_materials()
 			G4Material* GraphiteCarbon = new G4Material("GraphiteCarbon", 1.80 * g / cm3, 1);
 			GraphiteCarbon->AddElement(C, 1.0);
 			G4Material* Epoxy = new G4Material("Epoxy", 1.20 * g / cm3, 3);
-			Epoxy->AddElement(C, 0.60); // 60 %
-			Epoxy->AddElement(H, 0.08); // 8 %
-			Epoxy->AddElement(O, 0.32); // 32 %
+			Epoxy->AddElement(C, 0.60);
+			Epoxy->AddElement(H, 0.08);
+			Epoxy->AddElement(O, 0.32);
 			carbonFiber->AddMaterial(GraphiteCarbon, 0.60);
 			carbonFiber->AddMaterial(Epoxy, 0.40);
 
