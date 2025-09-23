@@ -134,10 +134,9 @@ void RadiationSimulation::MaterialSolver::init_custom_materials()
 			Epoxy->AddElement(O, 0.32);
 			carbonFiber->AddMaterial(GraphiteCarbon, 0.60);
 			carbonFiber->AddMaterial(Epoxy, 0.40);
-
-			MaterialSolver::custom_materials["CarbonFiber"] = carbonFiber;
 		}
 	}
+	MaterialSolver::custom_materials["CarbonFiber"] = carbonFiber;
 
 
 	// Aproximate composition from ICRU Report 46, ICRP Publ. 110
@@ -153,10 +152,9 @@ void RadiationSimulation::MaterialSolver::init_custom_materials()
 	spongiosa->AddElement(Mg, 0.010);
 	spongiosa->AddElement(Na, 0.001);
 	spongiosa->AddElement(K,  0.001);
-	spongiosa->AddElement(S, 0.002);
+	spongiosa->AddElement(S,  0.002);
 	spongiosa->AddElement(Cl, 0.002);
 	spongiosa->AddElement(Fe, 0.001);
-
 
 	MaterialSolver::custom_materials["ThoraticSpongiosa"] = spongiosa;
 }

@@ -27,6 +27,10 @@ namespace RadiationSimulation {
 			glm::vec3 radiation_field_voxel_dimensions; ///< Voxel dimensions of the radiation field.
 			float radiation_field_max_energy; ///< Maximum energy of the radiation field.
 			float energy_resolution; ///< Energy resolution of the radiation field.
+			struct {
+				float threshold = 0.1f; ///< Statistical error threshold for the simulation.
+				float enforcement_ratio = 0.9f; ///< Statistical error enforcement over the top particles inside the ratio.
+			} statistical_error;
 		} radiation_field_resolution;
 	public:
 		/**
@@ -51,8 +55,10 @@ namespace RadiationSimulation {
 		 * @param radiation_field_voxel_dimensions Voxel dimensions of the radiation field.
 		 * @param radiation_field_max_energy Maximum energy of the radiation field. Defines the histogram bins of the spectra layer.
 		 * @param energy_resolution Energy resolution of the radiation field. Defines the histogram bins of the spectra layer.
+		 * @param statistical_error_threshold Statistical error threshold that needs to be fullfilled by a certain amount of voxels.
+		 * @param statistical_error_enforcement_ratio Ratio of voxels that need to fullfill the statistical error threshold. The enforcement is done on the top x% of voxels sorted by their errors.
 		 */
-		void set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution);
+		void set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio);
 
 		/**
 		 * @brief Add geometry to the simulation.

@@ -106,7 +106,7 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 			this->radiation_field_resolution.radiation_field_voxel_dimensions,
 			static_cast<size_t>(this->radiation_field_resolution.radiation_field_max_energy / this->radiation_field_resolution.energy_resolution),
 			static_cast<double>(this->radiation_field_resolution.energy_resolution),
-			0.1f
+			this->radiation_field_resolution.statistical_error.threshold
 		);
 		rad_det->register_on_new_particle([=](size_t evt_count, const G4Step* step) {
 			for (auto& cb : this->callbacks) {
@@ -236,10 +236,12 @@ void RadiationSimulation::G4RadiationSimulationHandler::add_callback_every_n_par
 	callbacks.push_back({ n_particles, callback });
 }
 
-void RadiationSimulation::RadiationSimulationHandler::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution)
+void RadiationSimulation::RadiationSimulationHandler::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio)
 {
 	this->radiation_field_resolution.radiation_field_dimensions = radiation_field_dimensions;
 	this->radiation_field_resolution.radiation_field_voxel_dimensions = radiation_field_voxel_dimensions;
 	this->radiation_field_resolution.radiation_field_max_energy = radiation_field_max_energy;
 	this->radiation_field_resolution.energy_resolution = energy_resolution;
+	this->radiation_field_resolution.statistical_error.threshold = statistical_error_threshold;
+	this->radiation_field_resolution.statistical_error.enforcement_ratio = statistical_error_enforcement_ratio;
 }

@@ -82,6 +82,8 @@ int main(int argc, char* argv[]) {
 	size_t particle_count = 1e+6;
 	float voxel_dim = 0.1f;
 	float energy_resolution = 1e+3;
+	float statistical_error_threshold = 0.1f;
+	float statistical_error_enforcement_ratio = 0.95f;
 	std::string source_shape = "cone";
 	std::string world_material = "Air";
 	int cpu_count = -1;
@@ -106,6 +108,8 @@ int main(int argc, char* argv[]) {
 		G4cout << "  --energy-resolution: Resolution of the energy scroring. Effectively equals the bin width of the spectra histograms in eV. Default: 1 keV" << G4endl;
 		G4cout << "  --tracing-algorithm: Algorithm to use for the grid tracing. Must be one of ['sampling', 'bresenham', 'linetracing']" << G4endl;
 		G4cout << "  --world-material: Material of the world. Default: Air" << G4endl;
+		G4cout << "  --statistical-error-threshold: Threshold of the statistical error to stop the simulation early. Default: 0.1 (10%)" << G4endl;
+		G4cout << "  --statistical-error-enforcement-ratio: Ratio of voxels that must be below the statistical error threshold to stop the simulation early. Default: 0.95 (95%)" << G4endl;
 #ifdef WITH_GEANT4_UIVIS
 		G4cout << "  --gui: Flag if the Geant4 GUI should be shown" << G4endl;
 #else
@@ -286,6 +290,26 @@ int main(int argc, char* argv[]) {
 			}
 			continue;
 		}
+		if (arg == "--statistical-error-threshold") {
+			try {
+				statistical_error_threshold = std::stof(value);
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for statistical error threshold: " << value << G4endl;
+				throw e;
+			}
+			continue;
+		}
+		if (arg == "--statistical-error-enforcement-ratio") {
+			try {
+				statistical_error_enforcement_ratio = std::stof(value);
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for statistical error enforcement ratio: " << value << G4endl;
+				throw e;
+			}
+			continue;
+		}
 		if (arg == "--gui") {
 #ifdef WITH_GEANT4_UIVIS
 			show_gui = true;
@@ -385,7 +409,7 @@ int main(int argc, char* argv[]) {
 	RadiationSimulator::add_radiation_source(source);
 	RadiationSimulator::add_geometry(meshes);
 
-	RadiationSimulator::set_radiation_field_resolution(world_dim, glm::vec3(voxel_dim), max_energy * eV, energy_resolution * eV);
+	RadiationSimulator::set_radiation_field_resolution(world_dim, glm::vec3(voxel_dim), max_energy * eV, energy_resolution * eV, statistical_error_threshold, statistical_error_enforcement_ratio);
 
 	G4cout << "Using world dimensions: " << world_dim.x << "m x " << world_dim.y << "m x " << world_dim.z << "m" << G4endl;
 	G4cout << "Using world material: " << world_material << G4endl;

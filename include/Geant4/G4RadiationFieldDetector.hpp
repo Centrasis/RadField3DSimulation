@@ -78,7 +78,9 @@ namespace RadiationSimulation {
 				return static_cast<int>(idx);
 			}
 
-			float get_overall_statistical_error_estimate(size_t primary_particle_count) {
+			float get_overall_statistical_error_estimate(size_t primary_particle_count, float statistical_error_enforcement_ratio = 1.f) {
+				assert(statistical_error_enforcement_ratio >= 0.f && statistical_error_enforcement_ratio <= 1.f);
+
 				std::unique_lock lock(this->buffer_mutex);
 
 				size_t step_width = static_cast<size_t>(1.f / this->statistical_error_resolution);
@@ -105,7 +107,7 @@ namespace RadiationSimulation {
 				}
 
 				std::sort(errors.begin(), errors.end());
-				float stat_error = errors[static_cast<size_t>(errors.size() * 0.95f)];
+				float stat_error = errors[std::max<size_t>(static_cast<size_t>(errors.size() * statistical_error_enforcement_ratio), 1) - 1];
 
 				return stat_error;
 			}
@@ -195,7 +197,8 @@ namespace RadiationSimulation {
 		std::atomic<size_t> tracked_events_counter;
 		
 		G4Material* air_material = NULL;
-		const float statistical_error_threshold = 0.1f;
+		const float statistical_error_threshold;
+		const float statistical_error_enforcement_ratio;
 		bool is_tracking = true;
 		const float simulation_energy_lower_threshold = 1 * keV;
 		void score_step_for(const G4Step* step, const std::vector<size_t>& voxel_indices, TrackStage stage);
@@ -203,7 +206,7 @@ namespace RadiationSimulation {
 		std::shared_ptr<RadFiled3D::GridTracer> tracer;
 		std::vector< std::function<void(size_t, const G4Step*)>> new_particle_callbacks;
 	public:
-		G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold = 0.1f);
+		G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold = 0.1f, float statistical_error_enforcement_ratio = 0.9f);
 		virtual ~G4RadiationFieldDetector() {
 			G4cout << "G4RadiationFieldDetector destroyed" << G4endl;
 		}
