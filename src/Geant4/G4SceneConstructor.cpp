@@ -142,18 +142,17 @@ void RadiationSimulation::MaterialSolver::init_custom_materials()
 	// Aproximate composition from ICRU Report 46, ICRP Publ. 110
 	// from: https://gitlab.cern.ch/geant4/geant4/-/blob/master/examples/advanced/ICRP110_HumanPhantoms/src/ICRP110PhantomMaterial_Male.cc
 	G4cout << "Creating Spongiosa material as it is not present in this Geant4 version" << G4endl;
-	auto spongiosa = new G4Material("ThoraticSpongiosa", 1.074 * g / cm3, 9);
-	spongiosa->AddElement(H,  0.099);
-	spongiosa->AddElement(C,  0.376);
-	spongiosa->AddElement(N,  0.027);
-	spongiosa->AddElement(O,  0.459);
-	spongiosa->AddElement(P,  0.012);
-	spongiosa->AddElement(Ca, 0.020);
-	spongiosa->AddElement(Mg, 0.010);
+	auto spongiosa = new G4Material("ThoraticSpongiosa", 1.074 * g / cm3, 11);
+	spongiosa->AddElement(H, 0.099);
+	spongiosa->AddElement(C, 0.376);
+	spongiosa->AddElement(N, 0.027);
+	spongiosa->AddElement(O, 0.459);
 	spongiosa->AddElement(Na, 0.001);
-	spongiosa->AddElement(K,  0.001);
-	spongiosa->AddElement(S,  0.002);
+	spongiosa->AddElement(P, 0.012);
+	spongiosa->AddElement(S, 0.002);
 	spongiosa->AddElement(Cl, 0.002);
+	spongiosa->AddElement(K, 0.001);
+	spongiosa->AddElement(Ca, 0.020);
 	spongiosa->AddElement(Fe, 0.001);
 
 	MaterialSolver::custom_materials["ThoraticSpongiosa"] = spongiosa;
