@@ -7,6 +7,7 @@
 #include <G4ios.hh>
 #include <RadFiled3D/storage/RadiationFieldStore.hpp>
 #include <RadFiled3D/GridTracer.hpp>
+#include <RadFiled3D/helpers/Typing.hpp>
 #include <Geant4/G4World.hpp>
 #include <G4SystemOfUnits.hh>
 #include <RadiationFieldDetector.hpp>
@@ -25,7 +26,7 @@ namespace fs = std::experimental::filesystem;
 using namespace RadiationSimulation;
 
 
-void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, fs::path out_path, size_t n_particles, std::shared_ptr<XRaySource> source, const std::string& geometry_file, const std::string& spectrum_file, const glm::vec3& source_dir, float source_distance, float xray_energy, bool should_append_to_file, long long start_time) {
+void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, fs::path out_path, size_t n_particles, std::shared_ptr<XRaySource> source, const std::string& geometry_file, const std::string& spectrum_file, const glm::vec3& source_dir, float source_distance, float xray_energy, bool should_append_to_file, long long start_time, RadFiled3D::Typing::FieldShape field_shape, RadiationSimulation::ISourceShape* actual_field_shape) {
 	long long end_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
 	auto metadata = std::make_shared<RadFiled3D::Storage::V1::RadiationFieldMetadata>(
@@ -42,16 +43,33 @@ void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, f
 		),
 		RadFiled3D::Storage::FiledTypes::V1::RadiationFieldMetadataHeader::Software(
 			"RadField3D",
-			"1.0.0",
+			"1.0.1",
 			"https://github.com/Centrasis/RadField3DSimulation",
 			"HEAD"
 		)
 	);
 
 	RadFiled3D::HistogramVoxel spectrum = static_cast<XRaySpectrumSource*>(source.get())->getGeneratedSpectrum();
-	metadata->set_dynamic_metadata<RadFiled3D::HistogramVoxel>("tube_spectrum", spectrum);
+	metadata->set_dynamic_custom_metadata<RadFiled3D::HistogramVoxel>("tube_spectrum", RadFiled3D::HistogramVoxel(spectrum.get_bins(), spectrum.get_histogram_bin_width(), nullptr));
+	memccpy(metadata->get_dynamic_metadata<RadFiled3D::HistogramVoxel>("tube_spectrum").get_histogram().data(), spectrum.get_histogram().data(), 0, sizeof(float) * spectrum.get_bins());
 	uint64_t duration = end_time - start_time;
-	metadata->set_dynamic_metadata<RadFiled3D::ScalarVoxel<uint64_t>>("simulation_duration_s", RadFiled3D::ScalarVoxel<uint64_t>(&duration));
+	metadata->add_dynamic_metadata<uint64_t>("simulation_duration_s", duration);
+	metadata->add_dynamic_metadata<uint8_t>("xray_field_shape", static_cast<uint8_t>(field_shape));
+
+	float angle_deg = 0.f;
+	glm::vec2 field_dims_or_angles;
+	if (field_shape == RadFiled3D::Typing::FieldShape::Cone) {
+		angle_deg = dynamic_cast<RadiationSimulation::ConeSourceShape*>(actual_field_shape)->getOpeningAngleDegrees();
+		metadata->add_dynamic_metadata<float>("xray_tube_opening_angle_deg", angle_deg);
+	}
+	if (field_shape == RadFiled3D::Typing::FieldShape::Rectangle) {
+		field_dims_or_angles = dynamic_cast<RadiationSimulation::RectangleSourceShape*>(actual_field_shape)->getFieldSizeMeters();
+		metadata->add_dynamic_metadata<glm::vec2>("xray_tube_field_rect_dimensions_m", field_dims_or_angles);
+	}
+	if (field_shape == RadFiled3D::Typing::FieldShape::Ellipsis) {
+		field_dims_or_angles = dynamic_cast<RadiationSimulation::EllipsoidSourceShape*>(actual_field_shape)->getOpeningAnglesDegrees();
+		metadata->add_dynamic_metadata<glm::vec2>("xray_tube_field_ellipsis_opening_angles_deg", field_dims_or_angles);
+	}
 
 	RadFiled3D::CartesianRadiationField* cfield = (RadFiled3D::CartesianRadiationField*)field.get();
 	if (should_append_to_file) {
@@ -72,6 +90,7 @@ int main(int argc, char* argv[]) {
 	float source_angle_alpha = 0.f;
 	float source_angle_beta = 0.f;
 	float source_distance = 1.f;
+	RadFiled3D::Typing::FieldShape field_shape;
 	glm::vec3 source_opening_angle = glm::vec3(20.f);
 	glm::vec3 world_dim = glm::vec3(1.f);
 #ifdef WITH_GEANT4_UIVIS
@@ -356,12 +375,15 @@ int main(int argc, char* argv[]) {
 
 	if (source_shape == "cone") {
 		shape = std::make_unique<ConeSourceShape>(source_opening_angle.x);
+		field_shape = RadFiled3D::Typing::FieldShape::Cone;
 		G4cout << "Using source opening angle: " << source_opening_angle.x << "°" << G4endl;
 	} else if (source_shape == "rectangle") {
 		shape = std::make_unique<RectangleSourceShape>(glm::vec2(source_opening_angle.x, source_opening_angle.y), source_distance);
+		field_shape = RadFiled3D::Typing::FieldShape::Rectangle;
 		G4cout << "Using source rectangular dimensions: " << source_opening_angle.x << "m x " << source_opening_angle.y << "m" << G4endl;
 	} else if (source_shape == "ellipsoid") {
 		shape = std::make_unique<EllipsoidSourceShape>(glm::vec2(source_opening_angle.x, source_opening_angle.y));
+		field_shape = RadFiled3D::Typing::FieldShape::Ellipsis;
 		G4cout << "Using source ellipsoid shape with angles: " << source_opening_angle.x << "° x " << source_opening_angle.y << "°" << G4endl;
 	} else {
 		G4cout << "Unknown source shape: " << source_shape << ". Aborting..." << G4endl;
@@ -430,7 +452,7 @@ int main(int argc, char* argv[]) {
 	RadiationSimulator::add_callback_every_n_particles([&](std::shared_ptr<RadFiled3D::IRadiationField> field, size_t n_particles) {
 		G4cout << "Simulation auto save after " << n_particles << " particles" << G4endl;
 		last_particle_count = n_particles;
-		store_radiation_field(field, out_path, n_particles, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, should_append_to_file, start_time);
+		store_radiation_field(field, out_path, n_particles, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, should_append_to_file, start_time, field_shape, shape.get());
 	}, 1e+6);
 
 #ifdef WITH_GEANT4_UIVIS
@@ -443,7 +465,7 @@ int main(int argc, char* argv[]) {
 	auto field_promise = RadiationSimulator::simulate_radiation_field(particle_count, tracing_algorithm);
 	auto field = field_promise.get_future().get();
 	last_particle_count = G4World::Get()->get_radiation_field_detector()->get_number_of_tracked_particles();
-	store_radiation_field(field, out_path, last_particle_count, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, should_append_to_file, start_time);
+	store_radiation_field(field, out_path, last_particle_count, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, should_append_to_file, start_time, field_shape, shape.get());
 
 	G4cout << G4endl << "Wrote field to: " << out_path.string() << G4endl;
 

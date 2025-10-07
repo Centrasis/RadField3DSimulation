@@ -44,6 +44,8 @@ namespace RadiationSimulation {
 		 * @return The direction of the ray as a glm::vec3.
 		 */
 		virtual glm::vec3 drawRayDirection() override;
+
+		float getOpeningAngleDegrees() const { return glm::degrees(this->opening_angle_radians); }
 	};
 
 	/**
@@ -69,6 +71,8 @@ namespace RadiationSimulation {
 		 * @return The direction of the ray as a glm::vec3.
 		 */
 		virtual glm::vec3 drawRayDirection() override;
+
+		glm::vec2 getFieldSizeMeters() const { return this->size; }
 	};
 
 	/**
@@ -91,6 +95,8 @@ namespace RadiationSimulation {
 		 * @return The direction of the ray as a glm::vec3.
 		 */
 		virtual glm::vec3 drawRayDirection() override;
+
+		glm::vec2 getOpeningAnglesDegrees() const { return this->angles; }
 	};
 
 	/**
