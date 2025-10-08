@@ -160,6 +160,8 @@ namespace RadiationSimulation {
 		 * @param orientation The orientation of the source.
 		 */
 		void setTransform(const glm::vec3& location, const glm::vec3& orientation);
+
+		const ISourceShape* getShape() const { return this->shape.get(); }
 	};
 
 	/**
