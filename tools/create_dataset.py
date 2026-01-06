@@ -43,7 +43,7 @@ class ParameterValue(NamedTuple):
 
 
 class Parameter(object):
-    VALID_NAMES = ["energy", "source_distance", "source_angle_alpha", "source_angle_beta", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim", "world_material"]
+    VALID_NAMES = ["energy", "source_distance", "source_angle_phi", "source_angle_theta", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim", "world_material"]
 
     def __init__(self, name: str, range: Union[tuple[int, int], tuple[float, float], list[any]], is_range: bool = None):
         self.name = name.lower()
@@ -434,7 +434,7 @@ if __name__ == "__main__":
     parser.add_argument("--spectra", default=None, type=str, nargs=1, required=False, help="Path to a folder of a spectra dataset or a single spectrum that should be used. (Disables energy sampling)")
     parser.add_argument("--source_distance", default=1.0, type=float, nargs=1, required=False, help="Distance of the source to the geometry in m")
     parser.add_argument("--source_shape", default="cone", type=str, nargs=1, required=False, help="Shape of the source (cone, rectangle)")
-    parser.add_argument("--source_angles", default=None, type=float, nargs=2, required=False, help="Source angles in degrees (alpha, beta). If not set the angles will be randomly sampled.")
+    parser.add_argument("--source_angles", default=None, type=float, nargs=2, required=False, help="Source angles in degrees (phi, theta). If not set the angles will be randomly sampled.")
     parser.add_argument("--source_opening_angle", default='20.0', type=str, nargs='+', required=False, help="Opening angle of the source in degrees (One to two values depending on the source shape)")
     parser.add_argument("--clean", default=False, action="store_true", required=False, help="Clean the output radiation field before calculating it new. Otherwise append, if the fields are representing the same.")
     parser.add_argument("--bin_count", default=None, required=False, type=float, help="Optional: Define the number of energy bins to store for each fluence in each voxel. Defaults to match a bin width of 1 eV.")
@@ -562,8 +562,8 @@ if __name__ == "__main__":
         params = [
             Parameter("energy", energy_range),
             Parameter("source_distance", (source_distance, source_distance)),
-            Parameter("source_angle_alpha", (-90, 90) if should_sample_angles else (source_angles[0], source_angles[0])),
-            Parameter("source_angle_beta", (-45, 45) if should_sample_angles else (source_angles[1], source_angles[1])),
+            Parameter("source_angle_phi", (-90, 90) if should_sample_angles else (source_angles[0], source_angles[0])),
+            Parameter("source_angle_theta", (-45, 45) if should_sample_angles else (source_angles[1], source_angles[1])),
             Parameter("source_opening_angle", [opening_angle]),
             Parameter("source_shape", [source_shape]),
             Parameter("geometry", [geometry_file] if geometry_file != '' else []),
@@ -656,10 +656,10 @@ if __name__ == "__main__":
                     energy = param.value
                 elif param.name == "source_distance":
                     source_distance = param.value
-                elif param.name == "source_angle_alpha":
-                    alpha = param.value
-                elif param.name == "source_angle_beta":
-                    beta = param.value
+                elif param.name == "source_angle_phi":
+                    phi = param.value
+                elif param.name == "source_angle_theta":
+                    theta = param.value
                 elif param.name == "source_opening_angle":
                     source_opening_angle = param.value
                 elif param.name == "source_shape":
@@ -773,8 +773,8 @@ if __name__ == "__main__":
                         binary_path,
                         "--out", out_path,
                         "--max-energy", str(Emax),
-                        "--source-alpha", str(alpha),
-                        "--source-beta", str(beta),
+                        "--source-phi", str(phi),
+                        "--source-theta", str(theta),
                         "--source-distance", str(source_distance),
                         "--world-dim", f"{world_size[0]} {world_size[1]} {world_size[2]}",
                         "--particles", str(particles),

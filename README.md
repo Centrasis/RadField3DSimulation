@@ -49,8 +49,8 @@ The commandline interface of RadField3D can be printed by calling: `./RadField3D
 The parameters are the following:
 - *out*: The output path of the apllication. Must end with `.rf3` otherwise the extension will be added.
 - *max-energy*: Maximum energy to consider for the energy spectrum in each voxel. Value must be given in eV.
-- *source-alpha*: The rotation in degree inside the horizontal plane.
-- *source-beta*: The rotation in degree inside the vertical plane.
+- *source-phi*: The rotation in degree inside the horizontal plane.
+- *source-theta*: The rotation in degree inside the vertical plane.
 - *source-distance*: Radius of the roation sphere in meter (Equals the distance of the source from the center of the scene).
 - *world-dim*: Dimensions of the World in meter provided as a string looking like this: "x y z". The used source can be located outside this tracking volume.
 - *particles*: Maximum count of particles (photons) to track.
@@ -68,7 +68,7 @@ The parameters are the following:
 - *append*: If a file with the specified name and matching metadata is already present, RadField3D will just add both files together based on the ratio of the primary particles stored in the existing file and the primary particles generated during the current run of RadFiled3D.
 
 #### Example commandline
-``./RadField3D --out test.rf3 --max-energy 1.5e+4 --source-alpha 0 --source-beta 0 --source-distance 2 --world-dim "1 1 1" --particles 1e+7 --voxel-dim 0.02 --geom <a-geom-file> --spectrum <spectrum.csv>``
+``./RadField3D --out test.rf3 --max-energy 1.5e+4 --source-phi 0 --source-theta 0 --source-distance 2 --world-dim "1 1 1" --particles 1e+7 --voxel-dim 0.02 --geom <a-geom-file> --spectrum <spectrum.csv>``
 
 #### Geometry world description file
 The geometry description file contains the information how the meshes of the geometry file are nested inside eachother and which material each mesh volume has. Additionally, a transformation for each mesh can be supplied. The file shoud have the JSON-Format.
@@ -140,7 +140,7 @@ Parameters:
 - *spectra*: path to a single spectra file or folder containing multiple spectra to sample one spectrum from. Single spectrum files can be .csv-files like described prior or .spectrum-files that will be loaded as torch tensors. Used spectrum files will be copied in to the destination file and linked with the radiation field files.
 - *source_distance*: Radius of the roation sphere in meter (Equals the distance of the source from the center of the scene).
 - *source_shape*: The used source shape to sample rays from. Can be one of: `cone`, `rectangle` or `ellipsoid`.
-- *source_angles*: The angles from which the source is facing the center (alpha and beta angle in degree).
+- *source_angles*: The angles from which the source is facing the center (phi and theta angle in degree).
 - *source_opening_angle*: The opening angle to use for the ray sampling from the source.
   - For `cone`: One single value for the half opening angle in degrees.
   - For `ellipsoid`: Two values for the half opening angle in degrees and in each direction.
@@ -179,11 +179,11 @@ Parameters:
             "values": [2.5, 2.0, 1.5]   // This is a list to sample randomly from
         },
         {
-            "name": "source_angle_alpha",
+            "name": "source_angle_phi",
             "range": [-90, 90]          // This is a range to sample uniform within
         },
         {
-            "name": "source_angle_beta",
+            "name": "source_angle_theta",
             "value": 0                  // This is a fixed value that never changes
         },
         {
@@ -221,7 +221,7 @@ Parameters:
                 "value": 2.5
             },
             {
-                "name": "source_angle_alpha",
+                "name": "source_angle_phi",
                 "value": 0
             },
         ],
@@ -231,7 +231,7 @@ Parameters:
                 "value": 2.0
             },
             {
-                "name": "source_angle_alpha",
+                "name": "source_angle_phi",
                 "value": 0
             },
         ],
@@ -241,7 +241,7 @@ Parameters:
                 "value": 1.5
             },
             {
-                "name": "source_angle_alpha",
+                "name": "source_angle_phi",
                 "value": 0
             },
         ]
@@ -292,7 +292,7 @@ Please note, that the dataset generator tool only requires the __energy__ field 
 }
 ```
 
-## Materials
+## Custom Materials
 You can specify any material included into Geant4 from the NIST Materials Database.
 
 Additionally, ``MaterialSolver::init_custom_materials()`` from [``G4SceneConstructor.cpp``](./src/Geant4/G4SceneConstructor.cpp) exports the following additional Materials.
@@ -301,7 +301,8 @@ Additionally, ``MaterialSolver::init_custom_materials()`` from [``G4SceneConstru
 | Polyamide | 57% H, 31% C, 5% N, 5% O ; ρ = 1.14 g/cm^3 |
 | CarbonFiber | 60% C, 40% Epoxy ; ρ = 1.6 g/cm^3 |
 | ThoraticSpongiosa | Approximating ICRU Report 46 for the Thoratic spine ; ρ = 1.074 g/cm^3 |
-
+| CsI (Cesium Iodide) | 50% Cs, 50% I ([source](https://apc.u-paris.fr/~franco/g4doxy4.10/html/class_materials.html)); ρ = 4.51 g/cm^3|
+| PU_foam (Polyurethan foam) | 48% C, 36% H, 10% O, 6% N ; ρ = 0.05 g/cm^3 |
 ## Viewing and Exploring Datasets
 For viewing the results of the simulation and analyzing whole datasets, we provide the so called `RadFiled3DExplorer`. That little python program offers a GUI to view radiation fields generated with our simulation software. You find the project [here](https://github.com/Centrasis/RadFiled3DExplorer).
 

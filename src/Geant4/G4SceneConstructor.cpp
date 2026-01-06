@@ -109,6 +109,8 @@ void RadiationSimulation::MaterialSolver::init_custom_materials()
 	G4Element* S = MaterialSolver::nist_man->FindOrBuildElement("S");
 	G4Element* Cl = MaterialSolver::nist_man->FindOrBuildElement("Cl");
 	G4Element* Fe = MaterialSolver::nist_man->FindOrBuildElement("Fe");
+	G4Element* Cs = MaterialSolver::nist_man->FindOrBuildElement("Cs");
+	G4Element* I = MaterialSolver::nist_man->FindOrBuildElement("I");
 
 	G4Material* Polyamide = new G4Material("Polyamide", 1.14 * g / cm3, 4);
 	Polyamide->AddElement(H, 11);
@@ -154,8 +156,20 @@ void RadiationSimulation::MaterialSolver::init_custom_materials()
 	spongiosa->AddElement(K, 0.001);
 	spongiosa->AddElement(Ca, 0.020);
 	spongiosa->AddElement(Fe, 0.001);
-
 	MaterialSolver::custom_materials["ThoraticSpongiosa"] = spongiosa;
+
+	// From https://apc.u-paris.fr/~franco/g4doxy4.10/html/class_materials.html
+	G4Material* CsI = new G4Material("CsI", 4.51 * g / cm3, 2);
+	CsI->AddElement(Cs, 0.5);
+	CsI->AddElement(I, 0.5);
+	MaterialSolver::custom_materials["CsI"] = CsI;
+
+	G4Material* PU_foam = new G4Material("PU_foam", 0.05 * g / cm3, 4);
+	PU_foam->AddElement(C, 0.48);
+	PU_foam->AddElement(H, 0.36);
+	PU_foam->AddElement(O, 0.10);
+	PU_foam->AddElement(N, 0.06);
+	MaterialSolver::custom_materials["PU_foam"] = PU_foam;
 }
 
 G4Material* MaterialSolver::get_material(const G4String& name)

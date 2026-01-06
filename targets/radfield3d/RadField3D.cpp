@@ -89,8 +89,8 @@ int main(int argc, char* argv[]) {
 	fs::path spectrum_file = "";
 	double xray_energy = 0.0;
 	double max_energy = 0.0;
-	float source_angle_alpha = 0.f;
-	float source_angle_beta = 0.f;
+	float source_angle_phi = 0.f;
+	float source_angle_theta = 0.f;
 	float source_distance = 1.f;
 	RadFiled3D::Typing::FieldShape field_shape;
 	glm::vec3 source_opening_angle = glm::vec3(20.f);
@@ -117,8 +117,8 @@ int main(int argc, char* argv[]) {
 		G4cout << "  --geom-desc: Path to a geometry description file. Default: <geom[noExt]>.desc" << G4endl;
 		G4cout << "  --out: Path where the radiation field should be stored" << G4endl;
 		G4cout << "  --max-energy: Maximum Energy of the X-Raytube in eV to expect" << G4endl;
-		G4cout << "  --source-alpha: Y-Rotation of the X-Raytube in deg" << G4endl;
-		G4cout << "  --source-beta:  Z-Rotation of the X-Raytube in deg" << G4endl;
+		G4cout << "  --source-phi: Y-Rotation of the X-Raytube in deg" << G4endl;
+		G4cout << "  --source-theta:  Z-Rotation of the X-Raytube in deg" << G4endl;
 		G4cout << "  --particles: Maximum number of particles to process" << G4endl;
 		G4cout << "  --voxel-dim: Voxel dimensions in m" << G4endl;
 		G4cout << "  --world-dim: World dimensions in m 'x y z'" << G4endl;
@@ -246,9 +246,9 @@ int main(int argc, char* argv[]) {
 			}
 			continue;
 		}
-		if (arg == "--source-alpha") {
+		if (arg == "--source-phi") {
 			try {
-				source_angle_alpha = std::stof(value);
+				source_angle_phi = std::stof(value);
 			}
 			catch (std::exception& e) {
 				G4cerr << "Invalid argument for source alpha: " << value << G4endl;
@@ -256,9 +256,9 @@ int main(int argc, char* argv[]) {
 			}
 			continue;
 		}
-		if (arg == "--source-beta") {
+		if (arg == "--source-theta") {
 			try {
-				source_angle_beta = std::stof(value);
+				source_angle_theta = std::stof(value);
 			}
 			catch (std::exception& e) {
 				G4cerr << "Invalid argument for source beta: " << value << G4endl;
@@ -413,17 +413,26 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
+	if (source_angle_theta > 180.f || source_angle_theta < 0.f) {
+		G4cerr << "Source theta angle out of bounds. Only [0°, 180°] allowed. Aborting..." << G4endl;
+		return -1;
+	}
+	if (source_angle_phi < 0.f || source_angle_phi > 360.f) {
+		G4cerr << "Source phi angle out of bounds. Must be in [0°, 360°]. Aborting..." << G4endl;
+		return -1;
+	}
+
 	G4cout << "Set X-Ray source energy to: " << xray_energy / 1e+3 << "keV" << G4endl;
-	G4cout << "Set X-Ray source rotation (" << source_angle_alpha << "°, " << source_angle_beta << "°)" << G4endl;
+	G4cout << "Set X-Ray source rotation (" << source_angle_phi << "°, " << source_angle_theta << "°)" << G4endl;
 	G4cout << "Set X-Ray source distance to " << source_distance << " m" << G4endl;
 	G4cout << "Set tracking energy maximum to " << max_energy / 1e+3 << "keV" << G4endl;
 
 	// Create rotation quaternions:
-	// - Alpha: rotation in XZ plane (around Y axis)
-	// - Beta: rotation in YZ plane (around X axis)
+	// - phi: rotation in XZ plane (around Y axis)
+	// - theta: rotation in YZ plane (around X axis)
 	// Apply alpha first (XZ plane), then beta (YZ plane)
-	glm::quat alpha_rotation = glm::angleAxis(glm::radians(source_angle_alpha), glm::vec3(0.f, 1.f, 0.f));
-	glm::quat beta_rotation = glm::angleAxis(glm::radians(source_angle_beta), glm::vec3(1.f, 0.f, 0.f));
+	glm::quat alpha_rotation = glm::angleAxis(glm::radians(source_angle_phi), glm::vec3(0.f, 1.f, 0.f));
+	glm::quat beta_rotation = glm::angleAxis(glm::radians(source_angle_theta), glm::vec3(1.f, 0.f, 0.f));
 	glm::quat combined_rotation = beta_rotation * alpha_rotation;
 	
 	// Start with direction pointing toward center (negative Z direction)
