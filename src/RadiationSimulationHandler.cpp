@@ -106,7 +106,10 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 			this->radiation_field_resolution.radiation_field_voxel_dimensions,
 			static_cast<size_t>(this->radiation_field_resolution.radiation_field_max_energy / this->radiation_field_resolution.energy_resolution),
 			static_cast<double>(this->radiation_field_resolution.energy_resolution),
-			this->radiation_field_resolution.statistical_error.threshold
+			this->radiation_field_resolution.statistical_error.threshold,
+			this->radiation_field_resolution.statistical_error.enforcement_ratio,
+			this->radiation_field_resolution.angular_phi_segments,
+			this->radiation_field_resolution.angular_theta_segments
 		);
 		rad_det->register_on_new_particle([=](size_t evt_count, const G4Step* step) {
 			for (auto& cb : this->callbacks) {
@@ -150,7 +153,9 @@ void RadiationSimulation::G4RadiationSimulationHandler::display_gui()
 {
 #ifdef WITH_GEANT4_UIVIS
 	G4cout << "Displaying GUI..." << G4endl;
-	auto ui = std::unique_ptr<G4UIExecutive>(new G4UIExecutive(0, NULL)); // Use unique_ptr
+	int dummy_argc = 1;
+	char* dummy_argv[] = { (char*)"RadField3D" };
+	auto ui = std::unique_ptr<G4UIExecutive>(new G4UIExecutive(dummy_argc, dummy_argv));
 	this->has_ui = true;
 	this->G4VisManager = std::make_unique<G4VisExecutive>();
 	this->G4VisManager->Initialize();
@@ -236,7 +241,7 @@ void RadiationSimulation::G4RadiationSimulationHandler::add_callback_every_n_par
 	callbacks.push_back({ n_particles, callback });
 }
 
-void RadiationSimulation::RadiationSimulationHandler::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio)
+void RadiationSimulation::RadiationSimulationHandler::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, size_t angular_phi_segments, size_t angular_theta_segments)
 {
 	this->radiation_field_resolution.radiation_field_dimensions = radiation_field_dimensions;
 	this->radiation_field_resolution.radiation_field_voxel_dimensions = radiation_field_voxel_dimensions;
@@ -244,4 +249,6 @@ void RadiationSimulation::RadiationSimulationHandler::set_radiation_field_resolu
 	this->radiation_field_resolution.energy_resolution = energy_resolution;
 	this->radiation_field_resolution.statistical_error.threshold = statistical_error_threshold;
 	this->radiation_field_resolution.statistical_error.enforcement_ratio = statistical_error_enforcement_ratio;
+	this->radiation_field_resolution.angular_phi_segments = angular_phi_segments;
+	this->radiation_field_resolution.angular_theta_segments = angular_theta_segments;
 }

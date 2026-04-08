@@ -127,13 +127,13 @@ void RadiationSimulation::G4RadiationFieldDetector::score_step_for(const G4Step*
 	}
 }
 
-RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold, float statistical_error_enforcement_ratio)
+RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold, float statistical_error_enforcement_ratio, size_t angular_phi_segments, size_t angular_theta_segments)
 	: RadiationFieldDetector(radiation_field_dimensions, radiation_field_voxel_dimensions, spectra_bins, spectra_bin_width),
 	  statistical_error_threshold(statistical_error_threshold),
 	  statistical_error_enforcement_ratio(statistical_error_enforcement_ratio),
 	  buffers(
-	      ChannelBuffers(*static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("scatter_field").get()), static_cast<float>(spectra_bin_width), spectra_bins),
-		  ChannelBuffers(*static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("xray_beam").get()), static_cast<float>(spectra_bin_width), spectra_bins)
+	      ChannelBuffers(*static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("scatter_field").get()), static_cast<float>(spectra_bin_width), spectra_bins, angular_phi_segments, angular_theta_segments),
+		  ChannelBuffers(*static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("xray_beam").get()), static_cast<float>(spectra_bin_width), spectra_bins, angular_phi_segments, angular_theta_segments)
 	  ),
 	  G4UserSteppingAction()
 {
