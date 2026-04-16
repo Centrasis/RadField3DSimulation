@@ -47,19 +47,17 @@ void RadiationSimulation::G4RadiationFieldDetector::evaluate_field()
 	float accumulated_hits_per_particle = 0.f;
 	float max_hits = 0.f;
 	for (size_t i = 0; i < this->field->get_voxel_counts().x * this->field->get_voxel_counts().y * this->field->get_voxel_counts().z; i++) {
-		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("energy", i) /= static_cast<float>(primary_particles);
-		float hits = scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("hits", i).get_data();
+		float hits = scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i).get_data();
 		if (hits > max_hits)
 			max_hits = hits;
-		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("hits", i) /= static_cast<float>(primary_particles);
-		accumulated_hits_per_particle += scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("hits", i).get_data();
-		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<glm::vec3>>("direction", i) = this->buffers.scatter_field.get_pcas()[i].getPrincipalDirection();
+		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) /= static_cast<float>(primary_particles);
+		accumulated_hits_per_particle += scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i).get_data();
 		scatter_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel>("spectrum", i).normalize();
+		scatter_buffer->get_voxel_flat<RadFiled3D::SphericalVoxel>("angular_flux", i).normalize();
 
-		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("energy", i) /= static_cast<float>(primary_particles);
-		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("hits", i) /= static_cast<float>(primary_particles);
-		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<glm::vec3>>("direction", i) = this->buffers.xray_beam.get_pcas()[i].getPrincipalDirection();
+		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) /= static_cast<float>(primary_particles);
 		xray_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel>("spectrum", i).normalize();
+		xray_buffer->get_voxel_flat<RadFiled3D::SphericalVoxel>("angular_flux", i).normalize();
 	}
 
 	if (max_hits == 0.f)
@@ -88,14 +86,12 @@ std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::G4RadiationFie
 	std::shared_ptr<RadFiled3D::VoxelGridBuffer> scatter_buffer = copy->get_channel("scatter_field");
 	std::shared_ptr<RadFiled3D::VoxelGridBuffer> xray_buffer = copy->get_channel("xray_beam");
 	for (size_t i = 0; i < copy->get_voxel_counts().x * copy->get_voxel_counts().y * copy->get_voxel_counts().z; i++) {
-		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("energy", i) /= static_cast<float>(primary_particles);
-		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("hits", i) /= static_cast<float>(primary_particles);
-		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<glm::vec3>>("direction", i) = this->buffers.scatter_field.get_pcas()[i].getPrincipalDirection();
+		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) /= static_cast<float>(primary_particles);
+		scatter_buffer->get_voxel_flat<RadFiled3D::SphericalVoxel<float>>("angular_flux", i) /= static_cast<float>(primary_particles);
 		scatter_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel>("spectrum", i).normalize();
 
-		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("energy", i) /= static_cast<float>(primary_particles);
-		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("hits", i) /= static_cast<float>(primary_particles);
-		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<glm::vec3>>("direction", i) = this->buffers.xray_beam.get_pcas()[i].getPrincipalDirection();
+		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) /= static_cast<float>(primary_particles);
+		xray_buffer->get_voxel_flat<RadFiled3D::SphericalVoxel<float>>("angular_flux", i) /= static_cast<float>(primary_particles);
 		xray_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel>("spectrum", i).normalize();
 	}
 
@@ -127,13 +123,13 @@ void RadiationSimulation::G4RadiationFieldDetector::score_step_for(const G4Step*
 	}
 }
 
-RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold, float statistical_error_enforcement_ratio, float statistical_error_enforcement_resolution)
+RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold, float statistical_error_enforcement_ratio, glm::uvec2 angular_resolution)
 	: RadiationFieldDetector(radiation_field_dimensions, radiation_field_voxel_dimensions, spectra_bins, spectra_bin_width),
 	  statistical_error_threshold(statistical_error_threshold),
 	  statistical_error_enforcement_ratio(statistical_error_enforcement_ratio),
 	  buffers(
-	      ChannelBuffers(*static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("scatter_field").get()), static_cast<float>(spectra_bin_width), spectra_bins),
-		  ChannelBuffers(*static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("xray_beam").get()), static_cast<float>(spectra_bin_width), spectra_bins)
+	      ChannelBuffers(*static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("scatter_field").get()), static_cast<float>(spectra_bin_width), spectra_bins, angular_resolution),
+		  ChannelBuffers(*static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("xray_beam").get()), static_cast<float>(spectra_bin_width), spectra_bins, angular_resolution)
 	  ),
 	  G4UserSteppingAction()
 {
