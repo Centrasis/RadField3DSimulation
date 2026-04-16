@@ -51,7 +51,7 @@ void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, f
 
 	const RadiationSimulation::ISourceShape* actual_field_shape = source->getShape();
 	XRaySpectrumSource* spectrum_source = dynamic_cast<XRaySpectrumSource*>(source.get());
-	RadFiled3D::HistogramVoxel spectrum = spectrum_source->getGeneratedSpectrum();
+	RadFiled3D::HistogramVoxel<float> spectrum = spectrum_source->getGeneratedSpectrum();
 	metadata->set_dynamic_custom_metadata<RadFiled3D::HistogramVoxel<float>>("tube_spectrum", RadFiled3D::HistogramVoxel<float>(spectrum.get_bins(), spectrum.get_histogram_bin_width(), nullptr));
 	memcpy(metadata->get_dynamic_metadata<RadFiled3D::HistogramVoxel<float>>("tube_spectrum").get_histogram().data(), spectrum.get_histogram().data(), sizeof(float) * spectrum.get_bins());
 	uint64_t duration = end_time - start_time;

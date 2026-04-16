@@ -10,7 +10,7 @@ namespace {
 		Statistics::HistogramDistributionVariance variance(1, 1);
 		float db[1] = { 1.f };
 
-		RadFiled3D::HistogramVoxel histogram(static_cast<size_t>(1), 1.f, (float*)&db);
+		RadFiled3D::HistogramVoxel<float> histogram(static_cast<size_t>(1), 1.f, (float*)&db);
 		variance.add(histogram);
 		variance.add(histogram);
 		float var = variance.get_variance();
@@ -44,7 +44,7 @@ namespace {
 		Statistics::HistogramDistributionVariance variance(1, 1);
 		float db[1] = { 1.f };
 
-		RadFiled3D::HistogramVoxel histogram(static_cast<size_t>(1), 1.f, (float*)&db);
+		RadFiled3D::HistogramVoxel<float> histogram(static_cast<size_t>(1), 1.f, (float*)&db);
 		variance.add(histogram);
 		variance.add(histogram);
 		float err = variance.get_relative_error();
@@ -78,7 +78,7 @@ namespace {
 		Statistics::HistogramDistributionVariance variance(20, 1);
 		float db[20] = { 0.f };
 
-		RadFiled3D::HistogramVoxel histogram(static_cast<size_t>(20), 1.f, (float*)&db);
+		RadFiled3D::HistogramVoxel<float> histogram(static_cast<size_t>(20), 1.f, (float*)&db);
 		std::random_device rd;
 		std::mt19937 gen(rd());
 
@@ -114,7 +114,7 @@ namespace {
 		Statistics::HistogramDistributionVariance variance(20, 1);
 		float db[20] = { 0.f };
 
-		RadFiled3D::HistogramVoxel histogram(static_cast<size_t>(20), 1.f, (float*)&db);
+		RadFiled3D::HistogramVoxel<float> histogram(static_cast<size_t>(20), 1.f, (float*)&db);
 		std::random_device rd;
 		std::mt19937 gen(rd());
 
