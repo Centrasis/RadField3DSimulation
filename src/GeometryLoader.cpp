@@ -81,7 +81,7 @@ void SetupMesh(json& mesh_desc, std::shared_ptr<Mesh> mesh, const std::map<std::
 
         mesh->markAsSource(
             translation_info["ConcentricDistance"].get<float>(),
-            glm::vec2(rotation_info["Alpha"].get<float>(), rotation_info["Beta"].get<float>())
+            glm::vec2(rotation_info["Phi"].get<float>(), rotation_info["Theta"].get<float>())
         );
     }
 }

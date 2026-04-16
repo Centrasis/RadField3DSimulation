@@ -85,7 +85,7 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 					const glm::vec3 m_pos = m->getPosition();
 
 					m->setRotation(
-						m_rot_offset * original_source_rotation * m_rot
+						m_rot * original_source_rotation
 					);
 					if (glm::length(m_pos) != 0.f) {
 						m->setPosition(m_pos + glm::normalize(-m_pos) * (source_center_distance + m->getSourceConcentricDistance()));

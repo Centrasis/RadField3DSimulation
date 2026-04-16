@@ -45,10 +45,10 @@ namespace RadiationSimulation {
 			float total_energy = 0.f;
 			std::vector<std::shared_mutex> mutexes;
 			mutable std::shared_mutex buffer_mutex;
-			float statistical_error_resolution = 0.5f;
 		public:
 			RadFiled3D::VoxelGridBuffer& buffer;
 			const glm::vec3 half_field_dim;
+			float statistical_error_resolution = 0.5f;
 
 			void reset() {
 				std::unique_lock lock(this->buffer_mutex);
@@ -108,7 +108,7 @@ namespace RadiationSimulation {
 
 				std::sort(errors.begin(), errors.end());
 				float stat_error = errors[std::max<size_t>(static_cast<size_t>(errors.size() * statistical_error_enforcement_ratio), 1) - 1];
-
+				
 				return stat_error;
 			}
 
@@ -206,7 +206,7 @@ namespace RadiationSimulation {
 		std::shared_ptr<RadFiled3D::GridTracer> tracer;
 		std::vector< std::function<void(size_t, const G4Step*)>> new_particle_callbacks;
 	public:
-		G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold = 0.1f, float statistical_error_enforcement_ratio = 0.9f);
+		G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold = 0.1f, float statistical_error_enforcement_ratio = 0.9f, float statistical_error_enforcement_resolution = 1.f);
 		virtual ~G4RadiationFieldDetector() {
 			G4cout << "G4RadiationFieldDetector destroyed" << G4endl;
 		}

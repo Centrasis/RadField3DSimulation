@@ -30,6 +30,7 @@ namespace RadiationSimulation {
 			struct {
 				float threshold = 0.1f; ///< Statistical error threshold for the simulation.
 				float enforcement_ratio = 0.9f; ///< Statistical error enforcement over the top particles inside the ratio.
+				float enforcement_resolution = 1.f; ///< Statistical error resolution for enforcement e.g. check for every n-th voxel with 1.f -> every voxel and 0.5f -> every second, ....
 			} statistical_error;
 		} radiation_field_resolution;
 	public:

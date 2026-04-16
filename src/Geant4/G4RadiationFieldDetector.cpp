@@ -127,7 +127,7 @@ void RadiationSimulation::G4RadiationFieldDetector::score_step_for(const G4Step*
 	}
 }
 
-RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold, float statistical_error_enforcement_ratio)
+RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold, float statistical_error_enforcement_ratio, float statistical_error_enforcement_resolution)
 	: RadiationFieldDetector(radiation_field_dimensions, radiation_field_voxel_dimensions, spectra_bins, spectra_bin_width),
 	  statistical_error_threshold(statistical_error_threshold),
 	  statistical_error_enforcement_ratio(statistical_error_enforcement_ratio),
@@ -139,6 +139,7 @@ RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const gl
 {
 	this->define_grid_tracer<RadFiled3D::SamplingGridTracer>();
 	this->tracked_events_counter = 0;
+	this->buffers.scatter_field.statistical_error_resolution = statistical_error_enforcement_resolution;
 }
 
 void RadiationSimulation::G4RadiationFieldDetector::SetUp()
