@@ -108,6 +108,8 @@ int main(int argc, char* argv[]) {
 	std::string source_shape = "cone";
 	std::string world_material = "Air";
 	int cpu_count = -1;
+	size_t angular_phi_segments = 0;
+	size_t angular_theta_segments = 0;
 	RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING;
 
 
@@ -207,6 +209,21 @@ int main(int argc, char* argv[]) {
 		}
 		if (arg == "--cpu-count") {
 			cpu_count = std::stoi(value);
+			continue;
+		}
+		if (arg == "--angular-resolution") {
+			try {
+				std::stringstream ssin(value);
+				size_t phi, theta;
+				ssin >> phi;
+				ssin >> theta;
+				angular_phi_segments = phi;
+				angular_theta_segments = theta;
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for angular resolution: " << value << G4endl;
+				throw e;
+			}
 			continue;
 		}
 		if (arg == "--source-opening-angle") {
@@ -442,7 +459,7 @@ int main(int argc, char* argv[]) {
 	RadiationSimulator::add_radiation_source(source);
 	RadiationSimulator::add_geometry(meshes);
 
-	RadiationSimulator::set_radiation_field_resolution(world_dim, glm::vec3(voxel_dim), max_energy * eV, energy_resolution * eV, statistical_error_threshold, statistical_error_enforcement_ratio);
+	RadiationSimulator::set_radiation_field_resolution(world_dim, glm::vec3(voxel_dim), max_energy * eV, energy_resolution * eV, statistical_error_threshold, statistical_error_enforcement_ratio, angular_phi_segments, angular_theta_segments);
 
 	G4cout << "Using world dimensions: " << world_dim.x << "m x " << world_dim.y << "m x " << world_dim.z << "m" << G4endl;
 	G4cout << "Using world material: " << world_material << G4endl;

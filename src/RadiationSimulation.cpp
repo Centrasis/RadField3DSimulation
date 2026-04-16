@@ -68,9 +68,9 @@ void RadiationSimulation::RadiationSimulator::add_radiation_source(std::shared_p
 	World::Get()->radiation_source = source;
 }
 
-void RadiationSimulation::RadiationSimulator::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio)
+void RadiationSimulation::RadiationSimulator::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, size_t angular_phi_segments, size_t angular_theta_segments)
 {
-	RadiationSimulator::handler->set_radiation_field_resolution(radiation_field_dimensions, radiation_field_voxel_dimensions, radiation_field_max_energy, energy_resolution, statistical_error_threshold, statistical_error_enforcement_ratio);
+	RadiationSimulator::handler->set_radiation_field_resolution(radiation_field_dimensions, radiation_field_voxel_dimensions, radiation_field_max_energy, energy_resolution, statistical_error_threshold, statistical_error_enforcement_ratio, angular_phi_segments, angular_theta_segments);
 }
 
 void RadiationSimulation::RadiationSimulator::set_world_info(std::unique_ptr<RadiationSimulation::WorldInfo> info)
