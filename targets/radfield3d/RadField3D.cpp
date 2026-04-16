@@ -124,6 +124,7 @@ int main(int argc, char* argv[]) {
 		G4cout << "  --particles: Maximum number of particles to process" << G4endl;
 		G4cout << "  --voxel-dim: Voxel dimensions in m" << G4endl;
 		G4cout << "  --world-dim: World dimensions in m 'x y z'" << G4endl;
+		G4cout << "  --angular-resolution: Optionally enables an extra layer that captures the angular distribution of the flux in each voxel." << G4endl;
 		G4cout << "  --source-distance: Distance of the source in m" << G4endl;
 		G4cout << "  --source-shape: Type of the radiation field shape. Must be one of ['cone', 'rectangle', 'ellipsoid']" << G4endl;
 		G4cout << "  --spectrum: Path to an spectrum file when energy is not explicitly set" << G4endl;

@@ -43,7 +43,7 @@ class ParameterValue(NamedTuple):
 
 
 class Parameter(object):
-    VALID_NAMES = ["energy", "source_distance", "source_angle_phi", "source_angle_theta", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim", "world_material"]
+    VALID_NAMES = ["energy", "source_distance", "source_angle_phi", "source_angle_theta", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim", "world_material", "angular_resolution"]
 
     def __init__(self, name: str, range: Union[tuple[int, int], tuple[float, float], list[any]], is_range: bool = None):
         self.name = name.lower()
@@ -138,6 +138,7 @@ class ParameterSequence(ParameterSelector):
         bin_count = Parameter("bin_count", [file_content["Metaparameters"]["BinCount"]]) if "BinCount" in file_content["Metaparameters"] else None
         voxel_size = Parameter("voxel_size", [file_content["Metaparameters"]["VoxelSize"]]) if "VoxelSize" in file_content["Metaparameters"] else None
         world_dim = Parameter("world_dim", [file_content["Metaparameters"]["WorldDim"]]) if "WorldDim" in file_content["Metaparameters"] else None
+        angular_resolution = Parameter("angular_resolution", [file_content["Metaparameters"]["AngularResolution"]]) if "AngularResolution" in file_content["Metaparameters"] else None
         world_material = Parameter("world_material", [file_content["Metaparameters"]["WorldMaterial"]]) if "WorldMaterial" in file_content["Metaparameters"] else None
 
         for i, pset in enumerate(self.parameter_sets):
@@ -154,6 +155,8 @@ class ParameterSequence(ParameterSelector):
                 pset.values.append(voxel_size)
             if not any([p.name == "world_dim" for p in pset.values]) and world_dim is not None:
                 pset.values.append(world_dim)
+            if not any([p.name == "angular_resolution" for p in parameters]) and angular_resolution is not None:
+                pset.values.append(angular_resolution)
             if not any([p.name == "world_material" for p in pset.values]) and world_material is not None:
                 pset.values.append(world_material)
             assert len(set(all_names)) == len(all_names), f"Parameter names must be unique, found duplicates in set {i}"
@@ -207,7 +210,9 @@ class ParameterizedSampler(ParameterSelector):
         bin_count = Parameter("bin_count", [file_content["Metaparameters"]["BinCount"]]) if "BinCount" in file_content["Metaparameters"] else None
         voxel_size = Parameter("voxel_size", [file_content["Metaparameters"]["VoxelSize"]]) if "VoxelSize" in file_content["Metaparameters"] else None
         world_dim = Parameter("world_dim", [file_content["Metaparameters"]["WorldDim"]]) if "WorldDim" in file_content["Metaparameters"] else None
+        angular_resolution = Parameter("angular_resolution", [file_content["Metaparameters"]["AngularResolution"]]) if "AngularResolution" in file_content["Metaparameters"] else None
         world_material = Parameter("world_material", [file_content["Metaparameters"]["WorldMaterial"]]) if "WorldMaterial" in file_content["Metaparameters"] else None
+        
         if not any([p.name == "geometry" for p in parameters]) and geometry_file is not None:
             parameters.append(geometry_file)
         if not any([p.name == "particles" for p in parameters]) and particles is not None:
@@ -220,6 +225,8 @@ class ParameterizedSampler(ParameterSelector):
             parameters.append(voxel_size)
         if not any([p.name == "world_dim" for p in parameters]) and world_dim is not None:
             parameters.append(world_dim)
+        if not any([p.name == "angular_resolution" for p in parameters]) and angular_resolution is not None:
+            parameters.append(angular_resolution)
         if not any([p.name == "world_material" for p in parameters]) and world_material is not None:
             parameters.append(world_material)
 
@@ -429,6 +436,7 @@ if __name__ == "__main__":
     parser.add_argument("--geometry", type=str, nargs=1, default='', required=False, help="Path to a geometry file (practically any format) where a material definition file is stored as well (*.vm)")
     parser.add_argument("--voxel_size", default=0.05, type=float, nargs=1, required=False, help="Dimension of the cubic voxels in m")
     parser.add_argument("--world_size", default=[1, 1, 1], type=float, nargs=3, required=False, help="Dimension of the rectangular world in m")
+    parser.add_argument("--angular_resolution", default=[0, 0], type=int, nargs=2, required=False, help="Enables an extra layer that captures the angular distribution of the flux in each voxel.")
     parser.add_argument("--energy_res", default=1e+2, type=float, nargs=1, required=False, help="Energy resolution to use in eV for the sampling of new energies during dataset creation.")
     parser.add_argument("--binary", default="RadField3D.exe", type=str, nargs=1, required=False, help="Path to RadField3D Binary")
     parser.add_argument("--spectra", default=None, type=str, nargs=1, required=False, help="Path to a folder of a spectra dataset or a single spectrum that should be used. (Disables energy sampling)")
@@ -468,6 +476,7 @@ if __name__ == "__main__":
     particles: float = args.particles[0] if isinstance(args.particles, list) else args.particles
     energy_resolution: float = args.energy_res[0] if isinstance(args.energy_res, list) else args.energy_res
     world_size: List[float] = args.world_size
+    angular_resolution = args.angular_resolution
     voxel_size: float = args.voxel_size[0] if isinstance(args.voxel_size, list) else args.voxel_size
     geometry_file: str = args.geometry[0] if isinstance(args.geometry, list) else args.geometry
     binary_path: str = args.binary[0] if isinstance(args.binary, list) else args.binary
@@ -572,6 +581,7 @@ if __name__ == "__main__":
             Parameter("voxel_size", [voxel_size]),
             Parameter("particles", [particles]),
             Parameter("world_dim", [world_size]),
+            Parameter("angular_resolution", [angular_resolution]),
             Parameter("world_material", ["Air"])
         ]
         if spectra_path is not None:
@@ -693,6 +703,8 @@ if __name__ == "__main__":
                     particles = param.value
                 elif param.name == "world_dim":
                     world_size = param.value
+                elif param.name == "angular_resolution":
+                    angular_resolution = param.value
                 elif param.name == "world_material":
                     world_material = param.value
                 else:
@@ -777,6 +789,7 @@ if __name__ == "__main__":
                         "--source-theta", str(theta),
                         "--source-distance", str(source_distance),
                         "--world-dim", f"{world_size[0]} {world_size[1]} {world_size[2]}",
+                        "--angular-resolution", f"{angular_resolution[0]} {angular_resolution[0]}",
                         "--particles", str(particles),
                         "--source-shape", source_shape,
                         "--voxel-dim", str(voxel_size),
