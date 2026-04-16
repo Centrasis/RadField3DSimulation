@@ -59,9 +59,9 @@ namespace RadiationSimulation {
 
 	class SpectrumVoxel : public Voxel {
 	protected:
-		RadFiled3D::HistogramVoxel& voxel;
+		RadFiled3D::HistogramVoxel<float>& voxel;
 	public:
-		SpectrumVoxel(RadFiled3D::HistogramVoxel& voxel) : voxel(voxel) {}
+		SpectrumVoxel(RadFiled3D::HistogramVoxel<float>& voxel) : voxel(voxel) {}
 
 		inline const RadFiled3D::IVoxel* getVoxel() const override { return &this->voxel; }
 

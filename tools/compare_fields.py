@@ -14,10 +14,10 @@ def get_kerma_field_from(field: CartesianRadiationField) -> np.ndarray:
                 print(f"Found kerma_air in field with unit {field.get_channel(channel).get_layer_unit(layer)}")
                 return field.get_channel(channel).get_layer_as_ndarray(layer)   
 
-    if "xray_beam" in field.get_channel_names():
+    if "direct_beam" in field.get_channel_names():
         print("No kerma_air field found in field1, using xray_beam instead")
-        kerma_field = field.get_channel("xray_beam").get_layer_as_ndarray("spectrum") * field.get_channel("xray_beam").get_layer_as_ndarray("hits")[:, :, :, np.newaxis]
-        hist_voxel: HistogramVoxel = field.get_channel("xray_beam").get_voxel_flat("spectrum", 0)
+        kerma_field = field.get_channel("direct_beam").get_layer_as_ndarray("spectrum") * field.get_channel("direct_beam").get_layer_as_ndarray("hits")[:, :, :, np.newaxis]
+        hist_voxel: HistogramVoxel = field.get_channel("direct_beam").get_voxel_flat("spectrum", 0)
         bin_width = hist_voxel.get_histogram_bin_width()
         bin_edges = np.linspace(0.0, hist_voxel.get_bins() * bin_width, hist_voxel.get_bins())
         

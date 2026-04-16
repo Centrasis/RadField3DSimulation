@@ -54,7 +54,7 @@ RadiationSimulation::XRaySpectrumSource::XRaySpectrumSource(std::shared_ptr<Stat
 		}
 
 	this->hist_buffer = std::vector<float>(std::max<size_t>(max_energy_eV / 1e+3, 1), 0.0f);
-	this->hist = RadFiled3D::HistogramVoxel(this->hist_buffer.size(), 1e+3, this->hist_buffer.data());
+	this->hist = RadFiled3D::HistogramVoxel<float>(this->hist_buffer.size(), 1e+3, this->hist_buffer.data());
 	this->hist.clear();
 }
 

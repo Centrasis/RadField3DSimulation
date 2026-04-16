@@ -108,8 +108,8 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 			static_cast<double>(this->radiation_field_resolution.energy_resolution),
 			this->radiation_field_resolution.statistical_error.threshold,
 			this->radiation_field_resolution.statistical_error.enforcement_ratio,
-			this->radiation_field_resolution.angular_phi_segments,
-			this->radiation_field_resolution.angular_theta_segments
+			this->radiation_field_resolution.statistical_error.enforcement_resolution,
+			this->radiation_field_resolution.angular_resolution
 		);
 		rad_det->register_on_new_particle([=](size_t evt_count, const G4Step* step) {
 			for (auto& cb : this->callbacks) {

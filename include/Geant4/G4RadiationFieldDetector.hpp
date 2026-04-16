@@ -17,6 +17,7 @@
 #include <shared_mutex>
 #include "Statistics.hpp"
 #include <algorithm>
+#include <numbers>
 
 
 class G4RunManager;
@@ -57,9 +58,9 @@ namespace RadiationSimulation {
 					pca.reset();
 
 				this->buffer.clear_layer<float>("flux", 0.f);
-				this->buffer.clear_layer<float>("spectrum", 0.f, this->buffer.get_voxel_flat<RadFiled3D::HistogramVoxel>("spectrum", 0).get_bins());
+				this->buffer.clear_layer<float>("spectrum", 0.f, this->buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", 0).get_bins());
 				if (this->buffer.has_layer("angular_flux"))
-					this->buffer.clear_layer<float>("angular_flux", 0.f, this->buffer.get_voxel_flat<RadFiled3D::SphericalVoxel>("angular_flux", 0).get_total_segments());
+					this->buffer.clear_layer<float>("angular_flux", 0.f, this->buffer.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", 0).get_total_segments());
 			}
 
 			inline float get_total_energy() const { return this->total_energy; }
@@ -119,7 +120,7 @@ namespace RadiationSimulation {
 				}
 
 				for (size_t voxel_idx : voxel_indices) {
-					auto& hist_voxel = buffer.get_voxel_flat<RadFiled3D::HistogramVoxel>("spectrum", voxel_idx);
+					auto& hist_voxel = buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", voxel_idx);
 					size_t index = static_cast<size_t>(energy / hist_voxel.get_histogram_bin_width());
 					if (index >= hist_voxel.get_bins()) {
 						index = hist_voxel.get_bins() - 1;
@@ -139,8 +140,8 @@ namespace RadiationSimulation {
 						if (r > 0.f) {
 							float theta = std::acos(glm::clamp(direction.z / r, -1.f, 1.f));
 							float phi = std::atan2(direction.y, direction.x);
-							if (phi < 0.f) phi += 2.f * 3.14159265358979323846f;
-							this->buffer.get_voxel_flat<RadFiled3D::SphericalVoxel>("angular_flux", voxel_idx).add_value(phi, theta, 1.f);
+							if (phi < 0.f) phi += 2.f * std::numbers::pi_v<float>;
+							this->buffer.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", voxel_idx).add_value(phi, theta, 1.f);
 						}
 					}
 				}
@@ -165,18 +166,17 @@ namespace RadiationSimulation {
 			{
 				buffer.add_layer<float>("error", 1.f, "Variance");
 				buffer.add_layer<float>("flux", 0.f, "counts / primary_particles");
-				buffer.add_custom_layer<RadFiled3D::HistogramVoxel>("spectrum", RadFiled3D::HistogramVoxel(spectra_bins, spectra_bin_width, nullptr), 0.f, "eV");
+				buffer.add_custom_layer<RadFiled3D::HistogramVoxel<float>>("spectrum", RadFiled3D::HistogramVoxel<float>(spectra_bins, spectra_bin_width, nullptr), 0.f, "eV");
 				if (angular_resolution.x > 0 && angular_resolution.y > 0)
-					buffer.add_custom_layer<RadFiled3D::SphericalVoxel>("angular_flux", RadFiled3D::SphericalVoxel(angular_resolution.x, angular_resolution.y, nullptr), 0.f, "counts / primary_particles");
+					buffer.add_custom_layer<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", RadFiled3D::AngularResolvedVoxel<float>(angular_resolution, nullptr), 0.f, "counts / primary_particles");
 			}
 
 			ChannelBuffers(const ChannelBuffers& other)
 				: ChannelBuffers(
 					other.buffer,
-					other.buffer.get_voxel_flat<RadFiled3D::HistogramVoxel>("spectrum", 0).get_histogram_bin_width(),
-					other.buffer.get_voxel_flat<RadFiled3D::HistogramVoxel>("spectrum", 0).get_bins(),
-					other.buffer.has_layer("angular_flux") ? other.buffer.get_voxel_flat<RadFiled3D::SphericalVoxel>("angular_flux", 0).get_phi_segments() : 0,
-					other.buffer.has_layer("angular_flux") ? other.buffer.get_voxel_flat<RadFiled3D::SphericalVoxel>("angular_flux", 0).get_theta_segments() : 0
+					other.buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", 0).get_histogram_bin_width(),
+					other.buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", 0).get_bins(),
+					other.buffer.has_layer("angular_flux") ? other.buffer.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", 0).get_segments() : glm::uvec2(0)
 				) {}
 		};
 
@@ -215,7 +215,16 @@ namespace RadiationSimulation {
 		std::shared_ptr<RadFiled3D::GridTracer> tracer;
 		std::vector< std::function<void(size_t, const G4Step*)>> new_particle_callbacks;
 	public:
-		G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold = 0.1f, float statistical_error_enforcement_ratio = 0.9f, glm::uvec2 angular_resolution = glm::uvec2(0));
+		G4RadiationFieldDetector(
+			const glm::vec3& radiation_field_dimensions,
+			const glm::vec3& radiation_field_voxel_dimensions,
+			size_t spectra_bins,
+			double spectra_bin_width,
+			float statistical_error_threshold = 0.1f,
+			float statistical_error_enforcement_ratio = 0.9f,
+			float statistical_error_enforcement_resolution = 0.5f,
+			const glm::uvec2& angular_resolution = glm::uvec2(0)
+		);
 		virtual ~G4RadiationFieldDetector() {
 			G4cout << "G4RadiationFieldDetector destroyed" << G4endl;
 		}

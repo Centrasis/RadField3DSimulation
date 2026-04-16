@@ -45,7 +45,7 @@ Statistics::HistogramMeanDistributionVariance::HistogramMeanDistributionVariance
 	this->reset();
 }
 
-void Statistics::HistogramMeanDistributionVariance::add(const RadFiled3D::HistogramVoxel& vx)
+void Statistics::HistogramMeanDistributionVariance::add(const RadFiled3D::HistogramVoxel<float>& vx)
 {
 	this->add_count++;
 	if (this->add_count % this->score_every_n != 0)
@@ -95,7 +95,7 @@ Statistics::HistogramDistributionVariance::HistogramDistributionVariance(size_t 
 	this->reset();
 }
 
-void Statistics::HistogramDistributionVariance::add(const RadFiled3D::HistogramVoxel& vx)
+void Statistics::HistogramDistributionVariance::add(const RadFiled3D::HistogramVoxel<float>& vx)
 {
 	this->add_count++;
 	if (this->add_count % this->score_every_n != 0)
