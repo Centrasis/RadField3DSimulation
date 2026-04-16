@@ -52,7 +52,7 @@ namespace Statistics {
 		float cumulative_error;
 	public:
 		HistogramMeanDistributionVariance(float bin_width, size_t bins, size_t score_every_n = 100);
-		void add(const RadFiled3D::HistogramVoxel& vx);
+		void add(const RadFiled3D::HistogramVoxel<float>& vx);
 		void reset();
 
 		float get_relative_error() const;
@@ -70,7 +70,7 @@ namespace Statistics {
 		std::vector<Variance> variances;
 	public:
 		HistogramDistributionVariance(size_t bins, size_t score_every_n = 100);
-		void add(const RadFiled3D::HistogramVoxel& vx);
+		void add(const RadFiled3D::HistogramVoxel<float>& vx);
 		void reset();
 
 		float get_variance() const;

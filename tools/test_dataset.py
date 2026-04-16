@@ -23,7 +23,7 @@ for file_name in [f for f in os.listdir(data_dir) if f.endswith(".rf")]:
     print(f"Primay Particles: {meta_data.get_header().simulation.primary_particle_count:e}")
 
     scatter_component = field.get_channel("scatter_field")
-    beam_component = field.get_channel("xray_beam")
+    beam_component = field.get_channel("direct_beam")
 
     scatter_energy_field = scatter_component.get_layer_as_ndarray("energy")
     spectrum = scatter_component.get_layer_as_ndarray("spectrum")

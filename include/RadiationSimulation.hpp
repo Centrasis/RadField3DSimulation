@@ -85,8 +85,9 @@ namespace RadiationSimulation {
 		 * @param energy_resolution Resolution of the energy in the radiation field.
 		 * @param statistical_error_threshold Statistical error threshold that needs to be fullfilled by a certain amount of voxels for early stopping of the simulation.
 		 * @param statistical_error_enforcement_ratio Ratio of voxels that need to fullfill the statistical error threshold. The enforcement is done on the top x% of voxels sorted by their errors.
+		 * @param angular_resolution Number of segments (phi, theta) for angular distribution per voxel. 0 = disabled.
 		 */
-		static void set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio);
+		static void set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, const glm::uvec2& angular_resolution = glm::uvec2(0));
 
 		/**
 		 * @brief Deinitializes the radiation simulator.

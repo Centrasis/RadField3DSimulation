@@ -185,7 +185,7 @@ namespace RadiationSimulation {
 	protected:
 		std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> spectrum_probabilities; ///< Spectrum probabilities.
 		const float energy_lower_cut_eV; ///< Lower cut-off energy in electron volts.
-		RadFiled3D::HistogramVoxel hist; ///< Histogram voxel for the generated spectrum.
+		RadFiled3D::HistogramVoxel<float> hist; ///< Histogram voxel for the generated spectrum.
 		std::vector<float> hist_buffer; ///< Buffer for the histogram.
 		mutable std::shared_mutex hist_mutex; ///< Mutex for thread-safe access to the histogram.
 	public:
@@ -218,7 +218,7 @@ namespace RadiationSimulation {
 		 * @brief Gets the generated spectrum.
 		 * @return The generated spectrum as a HistogramVoxel.
 		 */
-		const RadFiled3D::HistogramVoxel& getGeneratedSpectrum() const { return this->hist; }
+		const RadFiled3D::HistogramVoxel<float>& getGeneratedSpectrum() const { return this->hist; }
 	};
 
 	/**

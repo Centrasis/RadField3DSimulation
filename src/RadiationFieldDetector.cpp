@@ -12,7 +12,7 @@ RadiationSimulation::RadiationDetector::RadiationDetector(size_t spectrum_bins, 
 	: energy(voxels->get_voxel<RadFiled3D::ScalarVoxel<float>>("energy", coord.x, coord.y, coord.z)),
 	  hits(voxels->get_voxel<RadFiled3D::ScalarVoxel<float>>("hits", coord.x, coord.y, coord.z)),
 	  direction(voxels->get_voxel<RadFiled3D::ScalarVoxel<glm::vec3>>("direction", coord.x, coord.y, coord.z)),
-	  spectrum(voxels->get_voxel<RadFiled3D::HistogramVoxel>("spectrum", coord.x, coord.y, coord.z)),
+	  spectrum(voxels->get_voxel<RadFiled3D::HistogramVoxel<float>>("spectrum", coord.x, coord.y, coord.z)),
 	  energy_squared_sum(0.f)
 {
 

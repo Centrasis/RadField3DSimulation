@@ -441,3 +441,7 @@ FodyWeavers.xsd
 /out
 /pyRadSim
 /pyRadSim.egg-info
+*.rf3
+spherical_data.csv
+test_dataset/
+.pytest_cache/

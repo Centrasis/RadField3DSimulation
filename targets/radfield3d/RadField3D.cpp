@@ -43,7 +43,7 @@ void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, f
 		),
 		RadFiled3D::Storage::FiledTypes::V1::RadiationFieldMetadataHeader::Software(
 			"RadField3D",
-			"1.0.1",
+			"1.1.0",
 			"https://github.com/Centrasis/RadField3DSimulation",
 			"HEAD"
 		)
@@ -52,8 +52,8 @@ void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, f
 	const RadiationSimulation::ISourceShape* actual_field_shape = source->getShape();
 	XRaySpectrumSource* spectrum_source = dynamic_cast<XRaySpectrumSource*>(source.get());
 	RadFiled3D::HistogramVoxel spectrum = spectrum_source->getGeneratedSpectrum();
-	metadata->set_dynamic_custom_metadata<RadFiled3D::HistogramVoxel>("tube_spectrum", RadFiled3D::HistogramVoxel(spectrum.get_bins(), spectrum.get_histogram_bin_width(), nullptr));
-	memcpy(metadata->get_dynamic_metadata<RadFiled3D::HistogramVoxel>("tube_spectrum").get_histogram().data(), spectrum.get_histogram().data(), sizeof(float) * spectrum.get_bins());
+	metadata->set_dynamic_custom_metadata<RadFiled3D::HistogramVoxel<float>>("tube_spectrum", RadFiled3D::HistogramVoxel<float>(spectrum.get_bins(), spectrum.get_histogram_bin_width(), nullptr));
+	memcpy(metadata->get_dynamic_metadata<RadFiled3D::HistogramVoxel<float>>("tube_spectrum").get_histogram().data(), spectrum.get_histogram().data(), sizeof(float) * spectrum.get_bins());
 	uint64_t duration = end_time - start_time;
 	metadata->add_dynamic_metadata<uint64_t>("simulation_duration_s", duration);
 	metadata->add_dynamic_metadata<uint8_t>("xray_field_shape", static_cast<uint8_t>(field_shape));
@@ -108,6 +108,8 @@ int main(int argc, char* argv[]) {
 	std::string source_shape = "cone";
 	std::string world_material = "Air";
 	int cpu_count = -1;
+	size_t angular_phi_segments = 0;
+	size_t angular_theta_segments = 0;
 	RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING;
 
 
@@ -207,6 +209,21 @@ int main(int argc, char* argv[]) {
 		}
 		if (arg == "--cpu-count") {
 			cpu_count = std::stoi(value);
+			continue;
+		}
+		if (arg == "--angular-resolution") {
+			try {
+				std::stringstream ssin(value);
+				size_t phi, theta;
+				ssin >> phi;
+				ssin >> theta;
+				angular_phi_segments = phi;
+				angular_theta_segments = theta;
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for angular resolution: " << value << G4endl;
+				throw e;
+			}
 			continue;
 		}
 		if (arg == "--source-opening-angle") {
@@ -442,7 +459,15 @@ int main(int argc, char* argv[]) {
 	RadiationSimulator::add_radiation_source(source);
 	RadiationSimulator::add_geometry(meshes);
 
-	RadiationSimulator::set_radiation_field_resolution(world_dim, glm::vec3(voxel_dim), max_energy * eV, energy_resolution * eV, statistical_error_threshold, statistical_error_enforcement_ratio);
+	RadiationSimulator::set_radiation_field_resolution(
+		world_dim,
+		glm::vec3(voxel_dim),
+		max_energy * eV,
+		energy_resolution * eV,
+		statistical_error_threshold,
+		statistical_error_enforcement_ratio,
+		glm::uvec2(angular_phi_segments, angular_theta_segments)
+	);
 
 	G4cout << "Using world dimensions: " << world_dim.x << "m x " << world_dim.y << "m x " << world_dim.z << "m" << G4endl;
 	G4cout << "Using world material: " << world_material << G4endl;
