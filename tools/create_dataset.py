@@ -2,22 +2,23 @@ import subprocess
 import os
 import re
 import random
-from typing import List, Union
+from typing import List, Union, Any
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from rich import print
-from RadFiled3D.RadFiled3D import CartesianRadiationField, FieldStore, DType
+from RadFiled3D.RadFiled3D import CartesianRadiationField, FieldStore, DType, vec3
 import numpy as np
 import argparse
 import torch
 import json
 import shutil
-from typing import NamedTuple
-from logging import getLogger
+from typing import NamedTuple, cast
 import datetime
 import platform
 from helpers.voxelization import VoxelizationHelper
 import uuid
 from copy import deepcopy
+import logging
+from rich.logging import RichHandler
 
 
 pattern_energy = re.compile(r"Set X-Ray source energy to: ([\de\+\-]+)eV")
@@ -26,9 +27,23 @@ pattern_loc = re.compile(r"Set X-Ray source location to \(([\+\-\d\.]+)\, ([\+\-
 pattern_voxel_and_particles = re.compile(r"Start simulating with voxel dimension: ([\d\.\+]+)m and an particle count of ([\d\.]+)")
 
 
+logging.basicConfig(
+    level="NOTSET",
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(
+        rich_tracebacks=True,
+        tracebacks_show_locals=True,
+        markup=True,
+        show_path=True
+    )]
+)
+LOGGER = logging.getLogger("RadField3D-Generator")
+
+
 class ParameterValue(NamedTuple):
     name: str
-    value: any
+    value: Any
 
     @staticmethod
     def from_json(json: dict) -> "ParameterValue":
@@ -55,7 +70,7 @@ class Parameter(object):
         else:
             self.is_range = is_range
 
-    def sample(self) -> any:
+    def sample(self) -> Any:
         if self.is_range:
             if isinstance(self.range[0], int):
                 return random.randint(self.range[0], self.range[1])
@@ -67,7 +82,7 @@ class Parameter(object):
             idx = random.randint(0, len(self.range) - 1)
             return self.range[idx]
 
-    def get_value(self) -> any:
+    def get_value(self) -> Any:
         """Get the value of the parameter if it is not a range, otherwise raise an exception."""
         if self.is_range:
             raise Exception("Cannot get value of a range parameter, use sample() instead")
@@ -389,7 +404,7 @@ def write_spectrum_file(src_file: str, out_path: str):
         except FileExistsError:
             pass
         except Exception as e:
-            getLogger().warning(f"Could not create directory {os.path.dirname(out_path)} for field {os.path.basename(src_file)} -> {e}")
+            LOGGER.warning(f"Could not create directory {os.path.dirname(out_path)} for field {os.path.basename(src_file)} -> {e}")
             raise e
 
     spectrum = torch.load(src_file, weights_only=True)
@@ -406,7 +421,7 @@ def write_spectrum_file(src_file: str, out_path: str):
 
 def write_voxelized_geometry_to_field(voxel_grid: np.ndarray, field: CartesianRadiationField, file_name: str):
     if not voxel_grid.any():
-        print(f"[yellow]WARNING: No geometry found for file {file_name}! This maybe an error.[/yellow]")
+        LOGGER.warning(f"No geometry found for file {file_name}! This maybe an error.")
 
     if not field.has_channel("geometry"):
         geom_channel = field.add_channel("geometry")
@@ -452,6 +467,7 @@ if __name__ == "__main__":
     parser.add_argument("--error_logs", default=None, type=str, nargs=1, required=False, help="Path to a folder where the error logs should be stored. Defaults to None which means console output only.")
     parser.add_argument("--cpu_count", default=-1, type=int, nargs=1, required=False, help="Number of CPU cores to use for the calculation. Defaults to -1 which means all available cores.")
     parser.add_argument("--random_names", default=False, action="store_true", required=False, help="Use random names for the output fields instead of numbered ones. This is useful if multiple dataset creation processes are running in parallel and independent from each other.")
+    parser.add_argument("--debug", action="store_true", required=False, help="Enable debug mode which will print more detailed information about the dataset generation process.")
 
     subcommands = parser.add_subparsers(title="Subcommands", description="valid subcommands", help="")
     cluster_parser = subcommands.add_parser("cluster", help="Cluster mode")
@@ -469,9 +485,9 @@ if __name__ == "__main__":
     out_dir: str = args.dest[0] if isinstance(args.dest, list) else args.dest
     n_sample_fields: int = args.fields[0] if isinstance(args.fields, list) else args.fields
     Emin: float = args.Emin[0] if isinstance(args.Emin, list) else args.Emin
-    Emax = None
+    Emax: Union[float, None] = None
     if "Emax" in args and args.Emax is not None:
-        Emax: float = args.Emax[0] if isinstance(args.Emax, list) else args.Emax
+        Emax = args.Emax[0] if isinstance(args.Emax, list) else args.Emax
     energy_range = [Emin, Emax]
     particles: float = args.particles[0] if isinstance(args.particles, list) else args.particles
     energy_resolution: float = args.energy_res[0] if isinstance(args.energy_res, list) else args.energy_res
@@ -486,11 +502,17 @@ if __name__ == "__main__":
     source_angles: List[float] = args.source_angles
     should_sample_angles = source_angles is None
     source_opening_angle = None
+    debug_mode = args.debug
     STORE_ERROR_LOGS = args.error_logs[0] if isinstance(args.error_logs, list) else args.error_logs
     if STORE_ERROR_LOGS is not None:
         if not os.path.isabs(STORE_ERROR_LOGS):
             STORE_ERROR_LOGS = os.path.join(os.getcwd(), STORE_ERROR_LOGS)
     tracer_algorithm: str = args.tracer_algorithm[0] if isinstance(args.tracer_algorithm, list) else args.tracer_algorithm
+
+    if debug_mode:
+        LOGGER.setLevel(logging.DEBUG)
+    else:
+        LOGGER.setLevel(logging.INFO)
 
     if "source_opening_angle" in args and args.source_opening_angle is not None:
         source_opening_angle: str = ' '.join(args.source_opening_angle) if isinstance(args.source_opening_angle, list) else args.source_opening_angle
@@ -602,12 +624,12 @@ if __name__ == "__main__":
         except FileExistsError:
             pass
         except Exception as e:
-            getLogger().warning(f"Could not create directory {out_dir} -> {e}")
+            LOGGER.warning(f"Could not create directory {out_dir} -> {e}")
             raise e
 
-    print(f"Start calculating {n_sample_fields} fields for dataset!")
+    LOGGER.info(f"Start calculating {n_sample_fields} fields for dataset!")
     if cluster_node_partition is not None:
-        print(f"Partitioning in cluster mode as node {cluster_node_partition[1]} of {cluster_node_partition[0]}")
+        LOGGER.info(f"Partitioning in cluster mode as node {cluster_node_partition[1]} of {cluster_node_partition[0]}")
 
     Emax = parameters.get_max_energy()
 
@@ -618,7 +640,7 @@ if __name__ == "__main__":
             preexisting_samples = [int(f.removesuffix(".rf3")) for f in preexisting_samples]
             preexisting_samples_max_nb = (max(preexisting_samples) + 1) if len(preexisting_samples) > 0 else 0
         except:
-            getLogger().warning("Could not parse preexisting samples! Was not a standard dataset naming convention.")
+            LOGGER.warning("Could not parse preexisting samples! Was not a standard dataset naming convention.")
 
         if cluster_node_partition is not None:
             parameters = [p for p in parameters]
@@ -657,7 +679,7 @@ if __name__ == "__main__":
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         sampling_task = progress.add_task("Calculating field...", total=len(parameters))
         for nb_sample, sample_parameters in enumerate(parameters):
-            spectra_path = None
+            spectra_path: Union[str, None] = None
             world_material = "Air"
             nb_sample += preexisting_samples_max_nb
             out_file_basename = str(uuid.uuid4()).replace('-', '') if USE_RANDOM_NAMES else f"{nb_sample:04d}"
@@ -755,13 +777,13 @@ if __name__ == "__main__":
                 except FileExistsError:
                     pass
                 except Exception as e:
-                    getLogger().warning(f"Could not create directory {os.path.dirname(out_path)} for field {out_name} -> {e}")
+                    LOGGER.warning(f"Could not create directory {os.path.dirname(out_path)} for field {out_name} -> {e}")
                     raise e
 
             if not args.clean:
                 spec_args.append("--append")
             elif os.path.exists(out_path):
-                getLogger().warning(f"Field {out_name} already exists and should be cleaned. Skipping...")
+                LOGGER.warning(f"Field {out_name} already exists and should be cleaned. Skipping...")
                 progress.update(sampling_task, advance=1)
                 continue
 
@@ -789,15 +811,17 @@ if __name__ == "__main__":
                         "--source-theta", str(theta),
                         "--source-distance", str(source_distance),
                         "--world-dim", f"{world_size[0]} {world_size[1]} {world_size[2]}",
-                        "--angular-resolution", f"{angular_resolution[0]} {angular_resolution[0]}",
+                        "--angular-resolution", f"{angular_resolution[0]} {angular_resolution[1]}",
                         "--particles", str(particles),
                         "--source-shape", source_shape,
                         "--voxel-dim", str(voxel_size),
                         "--energy-resolution", str(simulation_energy_resolution),
                         "--source-opening-angle", f"{source_opening_angle}",
                         "--tracing-algorithm", f"{tracer_algorithm}",
-                        "--world-material", world_material,
+                        "--world-material", world_material
                     ] + additional_options + spec_args + geom_args
+
+            LOGGER.debug(f"Running RadField3D with args: {cmd_args}")
 
             if cluster_should_generate_batch:
                 err = None
@@ -826,7 +850,7 @@ if __name__ == "__main__":
                     err = err.decode()
                 if len(err) > 0:
                     print(stdout)
-                    print(f"\n\nError while calculating {out_name}: '{err}'")
+                    LOGGER.error(f"\nwhile calculating {out_name}: '{err}'")
                     if STORE_ERROR_LOGS is not None:
                         if not os.path.exists(STORE_ERROR_LOGS):
                             os.makedirs(STORE_ERROR_LOGS)
@@ -836,20 +860,27 @@ if __name__ == "__main__":
                         with open(error_path, "w") as f:
                             f.write(err)
             if not cluster_should_generate_batch:
-                print(f"[white]Field was written to -> [green]{out_path}" if os.path.exists(out_path) else f"[white]Field was [red]not [white]written to -> [red]{out_path}")
                 if os.path.exists(out_path):
-                    field = FieldStore.load(out_path)
+                    LOGGER.info(f"Field was written to -> [green]{out_path}[/]")
+                    field = cast(CartesianRadiationField, FieldStore.load(out_path))
+                    LOGGER.debug(f"Loaded field from {out_path} for voxelization...")
                     if field is not None and geometry_file != '':
                         if not os.path.exists(geometry_file):
-                            getLogger().warning(f"Geometry file {geometry_file} does not exist! Skipping voxelization.")
+                            LOGGER.warning(f"Geometry file {geometry_file} does not exist! Skipping voxelization.")
                             continue
                         voxel_grid = VoxelizationHelper.generate_voxelgrid_with_geometry(
                             geom_file=geometry_file,
                             voxel_size=voxel_size,
                             grid_size=(int(world_size[0] / voxel_size), int(world_size[1] / voxel_size), int(world_size[2] / voxel_size)),
-                            description_file=geometry_desc_file if geometry_desc_file is not None and os.path.exists(geometry_desc_file) else None
+                            description_file=geometry_desc_file if geometry_desc_file is not None and os.path.exists(geometry_desc_file) else None,
+                            logger=LOGGER
                         )
                         write_voxelized_geometry_to_field(voxel_grid, field, out_path)
+                    else:
+                        LOGGER.warning(f"No field or geometry file provided for voxelization. Skipping voxelization.")
+                else:
+                    LOGGER.error(f"Field was not written to -> {out_path}")
+
         if cluster_should_generate_batch:
             if cluster_type == "slurm":
                 with open(cluster_batch_file_name, "a") as f:

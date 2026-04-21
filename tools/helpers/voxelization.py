@@ -2,6 +2,9 @@ import trimesh
 import rtree # needed to be included for voxelization
 import numpy as np
 import json
+from logging import Logger, 
+from typing import Union, cast
+from logging import Logger
 
 
 class VoxelizationHelper:
@@ -25,18 +28,24 @@ class VoxelizationHelper:
             return loaded_meshes
 
     @staticmethod
-    def generate_voxelgrid_with_geometry(geom_file: str, voxel_size: float, grid_size: tuple[int, int, int], description_file: str = None) -> np.ndarray:
+    def generate_voxelgrid_with_geometry(geom_file: str, voxel_size: Union[float, np.ndarray], grid_size: Union[np.ndarray, tuple[int, int, int]], description_file: Union[None, str] = None, logger: Union[None, Logger] = None) -> np.ndarray:
         """
         Generate a voxel grid from a geometry file.
 
         :param geom_file: Path to the geometry file.
         :param voxel_size: Size of each voxel.
+        :param grid_size: Size of the grid as a tuple of integers.
+        :param description_file: Optional path to a description file
+        :param logger: Optional logger to log information during processing
         :return: Voxel grid as a numpy array.
         """
         mesh = VoxelizationHelper.load_mesh(geom_file)
+        if logger is not None:
+            logger.debug(f"generate_voxelgrid_with_geometry(): Loaded mesh from {geom_file}")
+
         mesh.apply_translation(-mesh.bounds[0])
-        grid_size = np.array(grid_size)
-        voxel_size = np.array([voxel_size] * 3)
+        grid_size = np.array(grid_size) if not isinstance(grid_size, np.ndarray) else grid_size
+        voxel_size = np.array([voxel_size] * 3) if isinstance(voxel_size, float) else voxel_size 
         grid_dimensions = grid_size * voxel_size
 
         # Center the mesh inside the grid volume
@@ -70,6 +79,10 @@ class VoxelizationHelper:
                 geom_description[mesh_name]["Transform"]["Translation"]["Z"]
             ])
             mesh.apply_translation(mesh_translation)
+
+        if logger is not None:
+            logger.debug("generate_voxelgrid_with_geometry(): Mesh prepared for voxelization")
+        
         x = (np.arange(grid_size[0]) * voxel_size[0] + voxel_size[0] / 2.0)
         y = (np.arange(grid_size[1]) * voxel_size[1] + voxel_size[1] / 2.0)
         z = (np.arange(grid_size[2]) * voxel_size[2] + voxel_size[2] / 2.0)
@@ -79,5 +92,8 @@ class VoxelizationHelper:
         # Check which points are inside the mesh
         contained = mesh.contains(points)
         final_grid = contained.reshape(grid_size)
+
+        if logger is not None:
+            logger.debug("generate_voxelgrid_with_geometry(): Voxelization completed!")
 
         return final_grid
