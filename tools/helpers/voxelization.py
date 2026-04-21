@@ -90,7 +90,7 @@ class VoxelizationHelper:
         #points = np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]).T
 
         # Check which points are inside the mesh
-        voxels = mesh.voxelized(pitch=voxel_size[0]).fill()
+        voxels = mesh.voxelized(pitch=voxel_size[0]).revoxelized(shape=(grid_size[0], grid_size[1], grid_size[2])).fill()
         final_grid = voxels.matrix
 
         if logger is not None:
