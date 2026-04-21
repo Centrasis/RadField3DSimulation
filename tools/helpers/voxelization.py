@@ -2,7 +2,7 @@ import trimesh
 import rtree # needed to be included for voxelization
 import numpy as np
 import json
-from logging import Logger, 
+from logging import Logger
 from typing import Union, cast
 from logging import Logger
 
