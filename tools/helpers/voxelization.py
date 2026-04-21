@@ -45,7 +45,7 @@ class VoxelizationHelper:
 
         mesh.apply_translation(-mesh.bounds[0])
         grid_size = np.array(grid_size) if not isinstance(grid_size, np.ndarray) else grid_size
-        voxel_size = np.array([voxel_size] * 3) if isinstance(voxel_size, float) else voxel_size 
+        voxel_size: np.ndarray = cast(np.ndarray, np.array([voxel_size] * 3) if isinstance(voxel_size, float) else voxel_size)
         grid_dimensions = grid_size * voxel_size
 
         # Center the mesh inside the grid volume
@@ -83,15 +83,15 @@ class VoxelizationHelper:
         if logger is not None:
             logger.debug("generate_voxelgrid_with_geometry(): Mesh prepared for voxelization")
         
-        x = (np.arange(grid_size[0]) * voxel_size[0] + voxel_size[0] / 2.0)
-        y = (np.arange(grid_size[1]) * voxel_size[1] + voxel_size[1] / 2.0)
-        z = (np.arange(grid_size[2]) * voxel_size[2] + voxel_size[2] / 2.0)
-        xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
-        points = np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]).T
+        #x = (np.arange(grid_size[0]) * voxel_size[0] + voxel_size[0] / 2.0)
+        #y = (np.arange(grid_size[1]) * voxel_size[1] + voxel_size[1] / 2.0)
+        #z = (np.arange(grid_size[2]) * voxel_size[2] + voxel_size[2] / 2.0)
+        #xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
+        #points = np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]).T
 
         # Check which points are inside the mesh
-        contained = mesh.contains(points)
-        final_grid = contained.reshape(grid_size)
+        voxels = mesh.voxelized(pitch=voxel_size[0]).fill()
+        final_grid = voxels.matrix
 
         if logger is not None:
             logger.debug("generate_voxelgrid_with_geometry(): Voxelization completed!")
