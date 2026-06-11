@@ -46,6 +46,7 @@ void RadiationSimulation::G4RadiationFieldDetector::evaluate_field()
 	std::shared_ptr<RadFiled3D::VoxelGridBuffer> xray_buffer = this->field->get_channel("direct_beam");
 	float accumulated_hits_per_particle = 0.f;
 	float max_hits = 0.f;
+	bool has_angular_flux = scatter_buffer->has_layer("angular_flux");
 	for (size_t i = 0; i < this->field->get_voxel_counts().x * this->field->get_voxel_counts().y * this->field->get_voxel_counts().z; i++) {
 		float hits = scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i).get_data();
 		if (hits > max_hits)
@@ -53,11 +54,13 @@ void RadiationSimulation::G4RadiationFieldDetector::evaluate_field()
 		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) /= static_cast<float>(primary_particles);
 		accumulated_hits_per_particle += scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i).get_data();
 		scatter_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", i).normalize();
-		scatter_buffer->get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", i) /= static_cast<float>(primary_particles);
+		if (has_angular_flux)
+			scatter_buffer->get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", i) /= static_cast<float>(primary_particles);
 
 		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) /= static_cast<float>(primary_particles);
 		xray_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", i).normalize();
-		xray_buffer->get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", i) /= static_cast<float>(primary_particles);
+		if (has_angular_flux)
+			xray_buffer->get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", i) /= static_cast<float>(primary_particles);
 	}
 
 	if (max_hits == 0.f)
