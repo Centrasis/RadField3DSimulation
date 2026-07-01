@@ -875,6 +875,9 @@ if __name__ == "__main__":
             if not cluster_should_generate_batch:
                 if os.path.exists(out_path):
                     LOGGER.info(f"Field was written to -> [green]{out_path}[/]")
+                    if crop_world is not None:
+                        crop_rf3_file(out_path, crop_world)
+
                     field = cast(CartesianRadiationField, FieldStore.load(out_path))
                     LOGGER.debug(f"Loaded field from {out_path} for voxelization...")
                     if field is not None and geometry_file != '':
@@ -893,8 +896,6 @@ if __name__ == "__main__":
                         LOGGER.warning(f"No field or geometry file provided for voxelization. Skipping voxelization.")
                 else:
                     LOGGER.error(f"Field was not written to -> {out_path}")
-            if crop_world is not None:
-                crop_rf3_file(out_path, crop_world)
 
         if cluster_should_generate_batch:
             if cluster_type == "slurm":
