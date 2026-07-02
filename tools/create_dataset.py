@@ -884,10 +884,11 @@ if __name__ == "__main__":
                         if not os.path.exists(geometry_file):
                             LOGGER.warning(f"Geometry file {geometry_file} does not exist! Skipping voxelization.")
                             continue
+                        voxels = field.get_voxel_counts()
                         voxel_grid = VoxelizationHelper.generate_voxelgrid_with_geometry(
                             geom_file=geometry_file,
                             voxel_size=voxel_size,
-                            grid_size=(int(world_size[0] / voxel_size), int(world_size[1] / voxel_size), int(world_size[2] / voxel_size)),
+                            grid_size=(int(voxels.x), int(voxels.y), int(voxels.z)),
                             description_file=geometry_desc_file if geometry_desc_file is not None and os.path.exists(geometry_desc_file) else None,
                             logger=LOGGER
                         )
