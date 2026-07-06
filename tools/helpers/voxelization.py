@@ -17,11 +17,35 @@ class VoxelizationHelper:
         """
         loaded = trimesh.load(geom_file)
         if isinstance(loaded, trimesh.Scene):
-            return {
-                name: trimesh.Trimesh(mesh.vertices, mesh.faces, face_normals=mesh.face_normals, vertex_normals=mesh.vertex_normals)
-                for name, mesh in loaded.geometry.items()
-            }
+            if len(loaded.geometry) > 1:
+                return {name: g for name, g in loaded.geometry.items()}
+            loaded = loaded.dump(concatenate=True)
+        # OBJ objects are often merged into one mesh by trimesh; split them back by the file's
+        # 'o' groups (face order is preserved) so per-object desc transforms apply.
+        groups = VoxelizationHelper._obj_face_groups(geom_file)
+        if groups and sum(n for _, n in groups) == len(loaded.faces):
+            out, start = {}, 0
+            for name, n in groups:
+                out[name] = loaded.submesh([range(start, start + n)], append=True)
+                start += n
+            return out
         return {"mesh": loaded}
+
+    @staticmethod
+    def _obj_face_groups(geom_file: str):
+        if not geom_file.lower().endswith(".obj"):
+            return None
+        names, counts = [], []
+        try:
+            with open(geom_file) as f:
+                for ln in f:
+                    if ln.startswith("o "):
+                        names.append(ln[2:].strip()); counts.append(0)
+                    elif ln.startswith("f ") and counts:
+                        counts[-1] += 1
+        except Exception:
+            return None
+        return list(zip(names, counts)) if names else None
 
     @staticmethod
     def load_mesh(geom_file: str) -> trimesh.Trimesh:
@@ -57,19 +81,22 @@ class VoxelizationHelper:
 
     @staticmethod
     def _rasterize_into(grid: np.ndarray, mesh: trimesh.Trimesh, voxel_size: np.ndarray, world_center_m: np.ndarray):
-        """Mark every grid voxel whose CENTER lies inside the mesh. The mesh is in world
-        coordinates (origin = world center); the grid spans [0, grid_size*voxel_size) with the
-        world center at ``world_center_m``. Candidate voxels are limited to the mesh bounding box,
-        so memory stays proportional to the object, not the field."""
-        lo = np.maximum(np.floor((mesh.bounds[0] + world_center_m) / voxel_size).astype(int), 0)
-        hi = np.minimum(np.ceil((mesh.bounds[1] + world_center_m) / voxel_size).astype(int), np.array(grid.shape))
-        if np.any(hi <= lo):
+        """Voxelize the (world-frame) mesh at the grid pitch, fill the interior, and OR the
+        occupied cells into ``grid``. Uses trimesh surface voxelization (O(occupied cells)),
+        never per-point ray casting — the latter OOMs on large meshes."""
+        try:
+            vg = mesh.voxelized(pitch=float(voxel_size[0]))
+            try:
+                vg = vg.fill()
+            except Exception:
+                pass
+            pts = vg.points
+        except Exception:
             return
-        axes = [np.arange(lo[i], hi[i]) for i in range(3)]
-        xx, yy, zz = np.meshgrid(*axes, indexing="ij")
-        centers = (np.stack([xx, yy, zz], axis=-1).reshape(-1, 3) + 0.5) * voxel_size - world_center_m
-        inside = mesh.contains(centers).reshape(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2])
-        grid[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]] |= inside
+        idx = np.floor((pts + world_center_m) / voxel_size).astype(int)
+        keep = np.all((idx >= 0) & (idx < np.array(grid.shape)), axis=1)
+        idx = idx[keep]
+        grid[idx[:, 0], idx[:, 1], idx[:, 2]] = True
 
     @staticmethod
     def _walk_desc(desc: dict, parent_transform: dict = None):
