@@ -64,7 +64,7 @@ class Parameter(object):
     def __init__(self, name: str, range: Union[tuple[int, int], tuple[float, float], list[any]], is_range: bool = None):
         self.name = name.lower()
         assert name in Parameter.VALID_NAMES, f"Parameter name must be one of {Parameter.VALID_NAMES} not {name}"
-        self.range = range if isinstance(range, list) or isinstance(range, set) else [range]
+        self.range = list(range) if isinstance(range, (list, set, tuple)) else [range]
         assert len(range) > 0, "Range must have at least one element"
         if is_range is None:
             self.is_range = len(range) == 2 and ((isinstance(range[0], int) and isinstance(range[1], int)) or (isinstance(range[0], float) and isinstance(range[1], float)))
@@ -346,15 +346,15 @@ class GeometrySampler(object):
     def modify_geometry_desc(self, geometry_desc: dict, target_obj_name: str, new_transformation: dict) -> dict:
         for obj_name, parameters in geometry_desc.items():
             if obj_name == target_obj_name:
-                if "Transform" not in parameters:
-                    parameters["Transform"] = {}
-                transform: dict = parameters["Transform"]
-                transform.update(new_transformation)
-                parameters["Transform"] = transform
-                geometry_desc[obj_name] = parameters
-                return geometry_desc 
+                transform: dict = parameters.setdefault("Transform", {})
+                for component, axes in new_transformation.items():
+                    merged = transform.setdefault(component, {})
+                    for axis in ("X", "Y", "Z"):
+                        merged.setdefault(axis, 1.0 if component == "Scale" else 0.0)
+                    merged.update(axes)
+                return geometry_desc
             if "Children" in parameters:
-                geometry_desc = self.modify_geometry_desc(parameters["Children"], target_obj_name, new_transformation)
+                self.modify_geometry_desc(parameters["Children"], target_obj_name, new_transformation)
         return geometry_desc
 
     def _sample_transformation_per_object(self) -> dict:
@@ -506,6 +506,8 @@ if __name__ == "__main__":
     geometry_file: str = args.geometry[0] if isinstance(args.geometry, list) else args.geometry
     binary_path: str = args.binary[0] if isinstance(args.binary, list) else args.binary
     spectra_path: str = args.spectra[0] if isinstance(args.spectra, list) else args.spectra
+    if spectra_path is not None and not os.path.isabs(spectra_path):
+        spectra_path = os.path.abspath(spectra_path)
     source_distance: float = args.source_distance[0] if isinstance(args.source_distance, list) else args.source_distance
     source_shape: str = args.source_shape[0] if isinstance(args.source_shape, list) else args.source_shape
     source_angles: List[float] = args.source_angles
@@ -526,7 +528,8 @@ if __name__ == "__main__":
     if "source_opening_angle" in args and args.source_opening_angle is not None:
         source_opening_angle: str = ' '.join(args.source_opening_angle) if isinstance(args.source_opening_angle, list) else args.source_opening_angle
 
-    simulation_energy_resolution: float = int(Emax / args.bin_count) if args.bin_count is not None else 1e+3
+    # bin COUNT like the definition-file path; the sampling loop converts it to --energy-resolution
+    bin_count: int = int(args.bin_count) if args.bin_count is not None else int(Emax / 1e+3)
 
     sequence_file: str = None
     if "sequence_file" in args and args.sequence_file is not None:
@@ -592,7 +595,7 @@ if __name__ == "__main__":
         parameters = ParameterizedSampler.load_from(dataset_definition_file)
 
     geometry_sampler = None
-    if GeometrySampler.can_load_from(dataset_definition_file):
+    if dataset_definition_file is not None and GeometrySampler.can_load_from(dataset_definition_file):
         geometry_sampler = GeometrySampler.load_from(dataset_definition_file)
     
     # Seed from hostname and current datetime
@@ -602,13 +605,13 @@ if __name__ == "__main__":
         params = [
             Parameter("energy", energy_range),
             Parameter("source_distance", (source_distance, source_distance)),
-            Parameter("source_angle_phi", (-90, 90) if should_sample_angles else (source_angles[0], source_angles[0])),
-            Parameter("source_angle_theta", (-45, 45) if should_sample_angles else (source_angles[1], source_angles[1])),
-            Parameter("source_opening_angle", [opening_angle]),
+            Parameter("source_angle_phi", (0.0, 360.0) if should_sample_angles else (source_angles[0], source_angles[0])),
+            Parameter("source_angle_theta", (0.0, 180.0) if should_sample_angles else (source_angles[1], source_angles[1])),
+            Parameter("source_opening_angle", opening_angle if source_shape == "cone" else [f"{opening_angle[0]} {opening_angle[1]}"]),
             Parameter("source_shape", [source_shape]),
             Parameter("geometry", [geometry_file] if geometry_file != '' else []),
             Parameter("tracer_algorithm", [tracer_algorithm]),
-            Parameter("bin_count", [simulation_energy_resolution]),
+            Parameter("bin_count", [bin_count]),
             Parameter("voxel_size", [voxel_size]),
             Parameter("particles", [particles]),
             Parameter("world_dim", [world_size]),
@@ -718,6 +721,7 @@ if __name__ == "__main__":
                     if not os.path.exists(os.path.dirname(new_geometry_desc_file)):
                         os.makedirs(os.path.dirname(new_geometry_desc_file))
                     if not os.path.exists(geometry_desc_file):
+                        LOGGER.warning(f"No geometry description file found at {geometry_desc_file} — simulating without transforms/materials from a .desc.")
                         geometry_desc_file = None
                     elif geometry_sampler is None:
                         shutil.copyfile(geometry_desc_file, new_geometry_desc_file)
@@ -885,12 +889,22 @@ if __name__ == "__main__":
                             LOGGER.warning(f"Geometry file {geometry_file} does not exist! Skipping voxelization.")
                             continue
                         voxels = field.get_voxel_counts()
+                        world_center = None
+                        if crop_world is not None:
+                            counts = np.asarray(crop_world, dtype=int).reshape(-1)
+                            counts = np.repeat(counts, 3) if counts.size == 1 else counts
+                            dims = np.asarray(world_size, dtype=float).reshape(-1)
+                            dims = np.repeat(dims, 3) if dims.size == 1 else dims
+                            original = np.round(dims / voxel_size).astype(int)
+                            starts = (original - counts) // 2
+                            world_center = (original / 2.0 - starts) * voxel_size
                         voxel_grid = VoxelizationHelper.generate_voxelgrid_with_geometry(
                             geom_file=geometry_file,
                             voxel_size=voxel_size,
                             grid_size=(int(voxels.x), int(voxels.y), int(voxels.z)),
                             description_file=geometry_desc_file if geometry_desc_file is not None and os.path.exists(geometry_desc_file) else None,
-                            logger=LOGGER
+                            logger=LOGGER,
+                            world_center_m=world_center
                         )
                         write_voxelized_geometry_to_field(voxel_grid, field, out_path)
                     else:

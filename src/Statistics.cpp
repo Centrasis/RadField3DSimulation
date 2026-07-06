@@ -146,3 +146,59 @@ float Statistics::HistogramDistributionVariance::get_relative_error() const
 
 	return (sum / static_cast<float>(this->bins)) * 4.f;
 }
+
+
+Statistics::VoxelSpectraVariance::VoxelSpectraVariance(size_t voxel_count, size_t bins, size_t score_every_n)
+	: bins(bins),
+	  voxel_count(voxel_count),
+	  score_every_n(score_every_n),
+	  add_counts(voxel_count, 0),
+	  counts(voxel_count, 0),
+	  means(voxel_count * bins, 0.f),
+	  m2s(voxel_count * bins, 0.f)
+{
+}
+
+void Statistics::VoxelSpectraVariance::add(size_t voxel_idx, const RadFiled3D::HistogramVoxel<double>& vx)
+{
+	this->add_counts[voxel_idx]++;
+	if (this->add_counts[voxel_idx] % this->score_every_n != 0)
+		return;
+	this->add_counts[voxel_idx] = 0;
+	const uint32_t count = ++this->counts[voxel_idx];
+
+	double sum = 0.0;
+	for (size_t i = 0; i < this->bins; i++)
+		sum += vx.get_histogram()[i];
+
+	float* mean = this->means.data() + voxel_idx * this->bins;
+	float* m2 = this->m2s.data() + voxel_idx * this->bins;
+	for (size_t i = 0; i < this->bins; i++) {
+		const float val = (sum > 0.0) ? static_cast<float>(vx.get_histogram()[i] / sum) : 0.f;
+		const float delta = val - mean[i];
+		mean[i] += delta / static_cast<float>(count);
+		m2[i] += delta * (val - mean[i]);
+	}
+}
+
+void Statistics::VoxelSpectraVariance::reset()
+{
+	std::fill(this->add_counts.begin(), this->add_counts.end(), 0);
+	std::fill(this->counts.begin(), this->counts.end(), 0);
+	std::fill(this->means.begin(), this->means.end(), 0.f);
+	std::fill(this->m2s.begin(), this->m2s.end(), 0.f);
+}
+
+float Statistics::VoxelSpectraVariance::get_relative_error(size_t voxel_idx) const
+{
+	const uint32_t count = this->counts[voxel_idx];
+	if (count < 2)
+		return 1.f; // Keine statistische Aussage, wenn weniger als zwei Histogramme vorhanden sind
+
+	const float* m2 = this->m2s.data() + voxel_idx * this->bins;
+	float sum = 0.f;
+	for (size_t i = 0; i < this->bins; i++)
+		sum += m2[i] / static_cast<float>(count);
+
+	return (sum / static_cast<float>(this->bins)) * 4.f;
+}

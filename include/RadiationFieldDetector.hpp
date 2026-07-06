@@ -1,7 +1,6 @@
 #pragma once
 #include <memory>
 #include "RadFiled3D/RadiationField.hpp"
-#include <utils/PCA.hpp>
 #include <glm/vec3.hpp>
 #include <RadFiled3D/Voxel.hpp>
 
@@ -42,21 +41,6 @@ namespace RadiationSimulation {
 		float& value() const { return this->voxel.get_data(); }
 	};
 
-	class DirectionVoxel : public Voxel {
-	protected:
-		RadFiled3D::ScalarVoxel<glm::vec3>& voxel;
-		OnlinePCA pca;
-	public:
-		DirectionVoxel(RadFiled3D::ScalarVoxel<glm::vec3>& voxel) : voxel(voxel) {}
-		inline const RadFiled3D::IVoxel* getVoxel() const override { return &this->voxel; }
-		inline void add_value(const glm::vec3& dir) { pca.addVector(dir); }
-		virtual void normalize(size_t particle_count) override {
-			this->voxel = pca.getPrincipalDirection();
-		}
-
-		glm::vec3& value() const { return this->voxel.get_data(); }
-	};
-
 	class SpectrumVoxel : public Voxel {
 	protected:
 		RadFiled3D::HistogramVoxel<float>& voxel;
@@ -78,19 +62,6 @@ namespace RadiationSimulation {
 		virtual void normalize(size_t particle_count) override;
 
 		std::span<float> value() const { return this->voxel.get_histogram(); }
-	};
-
-	class RadiationDetector {
-	protected:
-		FloatVoxel energy;
-		CounterVoxel hits;
-		DirectionVoxel direction;
-		SpectrumVoxel spectrum;
-		float energy_squared_sum = 0.f;
-		
-	public:
-		RadiationDetector(size_t spectrum_bins, double spectrum_bin_width, std::shared_ptr<RadFiled3D::VoxelGridBuffer> voxels, const glm::uvec3& coord);
-		void normalize(size_t particle_count);
 	};
 
 	class RadiationFieldDetector {

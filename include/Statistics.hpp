@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <cstdint>
 #include "RadFiled3D/Voxel.hpp"
 
 namespace Statistics {
@@ -76,5 +77,27 @@ namespace Statistics {
 		float get_variance() const;
 
 		float get_relative_error() const;
+	};
+
+	/** @brief Flat-array equivalent of one HistogramDistributionVariance PER VOXEL.
+	 * Same math (subsampled per-bin Welford over the normalized spectrum), but four contiguous
+	 * allocations instead of millions of per-voxel objects with their own heap vectors:
+	 * bins * 2 floats + 2 counters per voxel (~264 B/voxel at 32 bins vs ~840 B fragmented).
+	 */
+	class VoxelSpectraVariance {
+	protected:
+		size_t bins;
+		size_t voxel_count;
+		size_t score_every_n;
+		std::vector<uint32_t> add_counts;
+		std::vector<uint32_t> counts;
+		std::vector<float> means;   // voxel-major: [voxel_idx * bins + bin]
+		std::vector<float> m2s;
+	public:
+		VoxelSpectraVariance(size_t voxel_count, size_t bins, size_t score_every_n = 100);
+		void add(size_t voxel_idx, const RadFiled3D::HistogramVoxel<double>& vx);
+		void reset();
+
+		float get_relative_error(size_t voxel_idx) const;
 	};
 };

@@ -13,7 +13,6 @@
 #include "G4Step.hh"
 #include <Geant4/G4RadiationSource.hpp>
 #include <G4RunManager.hh>
-#include <utils/PCA.hpp>
 #include "World.hpp"
 #include "Geometry.hpp"
 #include "G4NistManager.hh"
@@ -37,73 +36,86 @@ static std::string AIR_NAME = "G4_AIR";
 
 void RadiationSimulation::G4RadiationFieldDetector::evaluate_field()
 {
+	// Diagnostics only: the double accumulators stay untouched; normalization and the fp32
+	// conversion happen in get_normalized_field_copy(), which every store path uses.
 	const size_t primary_particles = this->tracked_events_counter;
-	// First calculate the statistical error on the non-normalized energy
-	this->field->get_channel("scatter_field")->set_statistical_error("spectrum", this->buffers.scatter_field.get_overall_statistical_error_estimate(primary_particles));
-	this->field->get_channel("direct_beam")->set_statistical_error("spectrum", this->buffers.xray_beam.get_overall_statistical_error_estimate(primary_particles));
-
 	std::shared_ptr<RadFiled3D::VoxelGridBuffer> scatter_buffer = this->field->get_channel("scatter_field");
-	std::shared_ptr<RadFiled3D::VoxelGridBuffer> xray_buffer = this->field->get_channel("direct_beam");
-	float accumulated_hits_per_particle = 0.f;
-	float max_hits = 0.f;
-	bool has_angular_flux = scatter_buffer->has_layer("angular_flux");
-	for (size_t i = 0; i < this->field->get_voxel_counts().x * this->field->get_voxel_counts().y * this->field->get_voxel_counts().z; i++) {
-		float hits = scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i).get_data();
+	// iterate the BUFFER's voxel count: the field's count can exceed it by one per axis for
+	// dimension ratios just below an integer (FLT_EPSILON asymmetry in RadFiled3D) — indexing
+	// by the field count would read/write past the layer allocations.
+	const size_t n = scatter_buffer->get_voxel_count();
+	double total_hits = 0.0;
+	double max_hits = 0.0;
+	for (size_t i = 0; i < n; i++) {
+		const double hits = scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<double>>("flux", i).get_data();
+		total_hits += hits;
 		if (hits > max_hits)
 			max_hits = hits;
-		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) /= static_cast<float>(primary_particles);
-		accumulated_hits_per_particle += scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i).get_data();
-		scatter_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", i).normalize();
-		if (has_angular_flux)
-			scatter_buffer->get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", i) /= static_cast<float>(primary_particles);
-
-		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) /= static_cast<float>(primary_particles);
-		xray_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", i).normalize();
-		if (has_angular_flux)
-			xray_buffer->get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", i) /= static_cast<float>(primary_particles);
 	}
 
-	if (max_hits == 0.f)
+	if (max_hits == 0.0)
 		G4cout << "WARNING: No voxel was hit by any particle. This is an indication of an unmatching tracking volume size or errorneous scene definitions." << G4endl;
 
-	if (accumulated_hits_per_particle < 1.f)
+	const double accumulated_hits_per_particle = (primary_particles > 0) ? total_hits / static_cast<double>(primary_particles) : 0.0;
+	if (accumulated_hits_per_particle < 1.0)
 		G4cout << "WARNING: On average there wasn't at least one voxel hit per particle. This is an indication of an unmatching tracking volume size or errorneous scene definitions. Average hits per voxel was: " << accumulated_hits_per_particle << G4endl;
-
-	for (size_t x = 0; x < this->field->get_voxel_counts().x; x++)
-		for (size_t y = 0; y < this->field->get_voxel_counts().y; y++)
-			for (size_t z = 0; z < this->field->get_voxel_counts().z; z++) {
-				scatter_buffer->get_voxel<RadFiled3D::ScalarVoxel<float>>("error", x, y, z) = this->buffers.scatter_field.get_statistical_error(primary_particles, x, y, z);
-				xray_buffer->get_voxel<RadFiled3D::ScalarVoxel<float>>("error", x, y, z) = this->buffers.xray_beam.get_statistical_error(primary_particles, x, y, z);
-			}
 }
 
 std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::G4RadiationFieldDetector::get_normalized_field_copy()
 {
+	// Builds the STORED field: per-primary normalization of the double accumulators, written
+	// into fresh fp32 layers. The scoring field itself stays untouched.
 	const size_t primary_particles = this->tracked_events_counter;
-	std::shared_ptr<RadFiled3D::CartesianRadiationField> copy = std::dynamic_pointer_cast<RadFiled3D::CartesianRadiationField>(this->field->copy());
+	const double norm = (primary_particles > 0) ? 1.0 / static_cast<double>(primary_particles) : 0.0;
+	auto copy = std::make_shared<RadFiled3D::CartesianRadiationField>(this->field->get_field_dimensions(), this->field->get_voxel_dimensions());
 
-	// First calculate the statistical error on the non-normalized energy
-	copy->get_channel("scatter_field")->set_statistical_error("spectrum", this->buffers.scatter_field.get_overall_statistical_error_estimate(primary_particles));
-	copy->get_channel("direct_beam")->set_statistical_error("spectrum", this->buffers.xray_beam.get_overall_statistical_error_estimate(primary_particles));
+	struct ChannelPair { const char* name; ChannelBuffers& src; };
+	ChannelPair channels[2] = { {"scatter_field", this->buffers.scatter_field}, {"direct_beam", this->buffers.xray_beam} };
 
-	std::shared_ptr<RadFiled3D::VoxelGridBuffer> scatter_buffer = copy->get_channel("scatter_field");
-	std::shared_ptr<RadFiled3D::VoxelGridBuffer> xray_buffer = copy->get_channel("direct_beam");
-	for (size_t i = 0; i < copy->get_voxel_counts().x * copy->get_voxel_counts().y * copy->get_voxel_counts().z; i++) {
-		scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) /= static_cast<float>(primary_particles);
-		scatter_buffer->get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", i) /= static_cast<float>(primary_particles);
-		scatter_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", i).normalize();
+	for (auto& [name, src] : channels) {
+		RadFiled3D::VoxelGridBuffer& in = src.buffer;
+		// iterate the BUFFER's voxel count, not the field's (FLT_EPSILON asymmetry — see evaluate_field)
+		const size_t n = in.get_voxel_count();
+		auto& hist0 = in.get_voxel_flat<RadFiled3D::HistogramVoxel<double>>("spectrum", 0);
+		const size_t bins = hist0.get_bins();
+		const bool has_angular = in.has_layer("angular_flux");
 
-		xray_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) /= static_cast<float>(primary_particles);
-		xray_buffer->get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", i) /= static_cast<float>(primary_particles);
-		xray_buffer->get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", i).normalize();
-	}
+		RadFiled3D::VoxelGridBuffer* out = static_cast<RadFiled3D::VoxelGridBuffer*>(copy->add_channel(name).get());
+		out->add_layer<float>("error", 1.f, "Variance");
+		out->add_layer<float>("flux", 0.f, "counts / primary_particles");
+		out->add_custom_layer<RadFiled3D::HistogramVoxel<float>>("spectrum", RadFiled3D::HistogramVoxel<float>(bins, static_cast<float>(hist0.get_histogram_bin_width()), nullptr), 0.f, "eV");
+		if (has_angular)
+			out->add_custom_layer<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", RadFiled3D::AngularResolvedVoxel<float>(in.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<double>>("angular_flux", 0).get_segments(), nullptr), 0.f, "counts / primary_particles");
 
-	for (size_t x = 0; x < copy->get_voxel_counts().x; x++)
-		for (size_t y = 0; y < copy->get_voxel_counts().y; y++)
-			for (size_t z = 0; z < copy->get_voxel_counts().z; z++) {
-				scatter_buffer->get_voxel<RadFiled3D::ScalarVoxel<float>>("error", x, y, z) = this->buffers.scatter_field.get_statistical_error(primary_particles, x, y, z);
-				xray_buffer->get_voxel<RadFiled3D::ScalarVoxel<float>>("error", x, y, z) = this->buffers.xray_beam.get_statistical_error(primary_particles, x, y, z);
+		for (size_t i = 0; i < n; i++) {
+			out->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) = static_cast<float>(in.get_voxel_flat<RadFiled3D::ScalarVoxel<double>>("flux", i).get_data() * norm);
+
+			const double* h_in = &in.get_voxel_flat<RadFiled3D::HistogramVoxel<double>>("spectrum", i).get_data();
+			float* h_out = &out->get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", i).get_data();
+			double sum = 0.0;
+			for (size_t b = 0; b < bins; b++)
+				sum += h_in[b];
+			if (sum > 0.0)
+				for (size_t b = 0; b < bins; b++)
+					h_out[b] = static_cast<float>(h_in[b] / sum);
+
+			if (has_angular) {
+				auto& a_in = in.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<double>>("angular_flux", i);
+				const size_t segments = a_in.get_total_segments();
+				const double* s_in = &a_in.get_data();
+				float* s_out = &out->get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", i).get_data();
+				for (size_t s = 0; s < segments; s++)
+					s_out[s] = static_cast<float>(s_in[s] * norm);
 			}
+		}
+
+		for (size_t x = 0; x < out->get_voxel_counts().x; x++)
+			for (size_t y = 0; y < out->get_voxel_counts().y; y++)
+				for (size_t z = 0; z < out->get_voxel_counts().z; z++)
+					out->get_voxel<RadFiled3D::ScalarVoxel<float>>("error", x, y, z) = src.get_statistical_error(primary_particles, x, y, z);
+
+		out->set_statistical_error("spectrum", src.get_overall_statistical_error_estimate(primary_particles));
+	}
 
 	return copy;
 }
@@ -131,8 +143,9 @@ RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const gl
 	  statistical_error_threshold(statistical_error_threshold),
 	  statistical_error_enforcement_ratio(statistical_error_enforcement_ratio),
 	  buffers(
-	      ChannelBuffers(*static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("scatter_field").get()), static_cast<float>(spectra_bin_width), spectra_bins, angular_resolution),
-		  ChannelBuffers(*static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("direct_beam").get()), static_cast<float>(spectra_bin_width), spectra_bins, angular_resolution)
+	      *static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("scatter_field").get()),
+		  *static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("direct_beam").get()),
+		  static_cast<float>(spectra_bin_width), spectra_bins, angular_resolution
 	  ),
 	  G4UserSteppingAction()
 {
@@ -188,7 +201,14 @@ void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4S
 	const G4int thread_id = G4Threading::G4GetThreadId();
 	const size_t event_id = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
 
-	std::map<size_t, EventContext>::iterator thread_context_itr = this->thread_contexts.find(thread_id);
+	// The read must be locked too: another worker's first-event insert rebalances the map while
+	// this thread traverses it. std::map iterators stay valid across inserts, so holding the
+	// found iterator after releasing the lock is safe.
+	std::map<size_t, EventContext>::iterator thread_context_itr;
+	{
+		std::shared_lock read_lock(this->global_detector_mutex);
+		thread_context_itr = this->thread_contexts.find(thread_id);
+	}
 	if (thread_context_itr == this->thread_contexts.end()) {
 		std::unique_lock lock(this->global_detector_mutex);
 		this->tracked_events_counter++;

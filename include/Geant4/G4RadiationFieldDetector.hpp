@@ -4,7 +4,8 @@
 #include <RadiationFieldDetector.hpp>
 #include <RadFiled3D/RadiationField.hpp>
 #include <G4VSensitiveDetector.hh>
-#include <glm/vec3.hpp>
+#include <glm/glm.hpp>
+#include <algorithm>
 #include <G4UserSteppingAction.hh>
 #include <G4VUserActionInitialization.hh>
 #include "Collisions.h"
@@ -41,8 +42,11 @@ namespace RadiationSimulation {
 	protected:
 		class ChannelBuffers {
 		protected:
-			std::vector<OnlinePCA> pca;
-			std::vector<Statistics::HistogramDistributionVariance> spectra_variance;
+			// Striped voxel locks: a voxel always maps to the same mutex (idx % pool), locks are
+			// taken one voxel at a time (never nested), so contention semantics match the old
+			// one-mutex-per-voxel layout at a fraction of the memory.
+			static constexpr size_t MUTEX_POOL_SIZE = 4096;
+			Statistics::VoxelSpectraVariance spectra_variance;
 			float total_energy = 0.f;
 			std::vector<std::shared_mutex> mutexes;
 			mutable std::shared_mutex buffer_mutex;
@@ -54,13 +58,10 @@ namespace RadiationSimulation {
 			void reset() {
 				std::unique_lock lock(this->buffer_mutex);
 				this->total_energy = 0.f;
-				for (auto& pca : this->pca)
-					pca.reset();
-
-				this->buffer.clear_layer<float>("flux", 0.f);
-				this->buffer.clear_layer<float>("spectrum", 0.f, this->buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", 0).get_bins());
+				this->buffer.clear_layer<double>("flux", 0.0);
+				this->buffer.clear_layer<double>("spectrum", 0.0, this->buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<double>>("spectrum", 0).get_bins());
 				if (this->buffer.has_layer("angular_flux"))
-					this->buffer.clear_layer<float>("angular_flux", 0.f, this->buffer.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", 0).get_total_segments());
+					this->buffer.clear_layer<double>("angular_flux", 0.0, this->buffer.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<double>>("angular_flux", 0).get_total_segments());
 			}
 
 			inline float get_total_energy() const { return this->total_energy; }
@@ -72,7 +73,7 @@ namespace RadiationSimulation {
 					return -2;
 				
 				size_t idx = this->buffer.get_voxel_idx_by_coord(positive_position.x, positive_position.y, positive_position.z);
-				if (idx >= pca.size())
+				if (idx >= this->buffer.get_voxel_count())
 					return -1;
 				return static_cast<int>(idx);
 			}
@@ -111,8 +112,6 @@ namespace RadiationSimulation {
 				return stat_error;
 			}
 
-			inline const std::vector<OnlinePCA>& get_pcas() const { return this->pca; }
-
 			inline void score(float energy, const glm::vec3& direction, const std::vector<size_t>& voxel_indices) {
 				{
 					std::unique_lock lock(this->buffer_mutex);
@@ -120,20 +119,18 @@ namespace RadiationSimulation {
 				}
 
 				for (size_t voxel_idx : voxel_indices) {
-					auto& hist_voxel = buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", voxel_idx);
+					auto& hist_voxel = buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<double>>("spectrum", voxel_idx);
 					size_t index = static_cast<size_t>(energy / hist_voxel.get_histogram_bin_width());
 					if (index >= hist_voxel.get_bins()) {
 						index = hist_voxel.get_bins() - 1;
 						G4cout << "WARNING: Energy value exceeds histogram energy range. Energy: " << energy << " MeV" << G4endl;
 					}
 
-					std::unique_lock lock(this->mutexes[voxel_idx]);
-					this->buffer.get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", voxel_idx) += 1.f;
+					std::unique_lock lock(this->mutexes[voxel_idx % MUTEX_POOL_SIZE]);
+					this->buffer.get_voxel_flat<RadFiled3D::ScalarVoxel<double>>("flux", voxel_idx) += 1.0;
 
-					this->pca[voxel_idx].addVector(direction);
-
-					(&hist_voxel.get_data())[index] += 1.f;
-					this->spectra_variance[voxel_idx].add(hist_voxel);
+					(&hist_voxel.get_data())[index] += 1.0;
+					this->spectra_variance.add(voxel_idx, hist_voxel);
 
 					if (this->buffer.has_layer("angular_flux")) {
 						float r = glm::length(direction);
@@ -141,14 +138,14 @@ namespace RadiationSimulation {
 							float theta = std::acos(glm::clamp(direction.z / r, -1.f, 1.f));
 							float phi = std::atan2(direction.y, direction.x);
 							if (phi < 0.f) phi += 2.f * std::numbers::pi_v<float>;
-							this->buffer.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", voxel_idx).add_value(phi, theta, 1.f);
+							this->buffer.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<double>>("angular_flux", voxel_idx).add_value(phi, theta, 1.0);
 						}
 					}
 				}
 			}
 
 			inline float get_statistical_error(size_t primary_particle_count, size_t x, size_t y, size_t z) {
-				return this->spectra_variance[this->buffer.get_voxel_idx(x, y, z)].get_relative_error();
+				return this->spectra_variance.get_relative_error(this->buffer.get_voxel_idx(x, y, z));
 			}
 
 			ChannelBuffers(RadFiled3D::VoxelGridBuffer& buffer, float spectra_bin_width, size_t spectra_bins, glm::uvec2 angular_resolution = glm::uvec2(0))
@@ -160,24 +157,24 @@ namespace RadiationSimulation {
 						  static_cast<float>(buffer.get_voxel_counts().z * buffer.get_voxel_dimensions().z * m) / 2.f
 					  )
 				  ),
-				  pca(buffer.get_voxel_count()),
-				  spectra_variance(buffer.get_voxel_count(), Statistics::HistogramDistributionVariance(spectra_bins, 50)),
-				  mutexes(buffer.get_voxel_count())
+				  spectra_variance(buffer.get_voxel_count(), spectra_bins, 50),
+				  mutexes(std::min(buffer.get_voxel_count(), MUTEX_POOL_SIZE))
 			{
+				// Scoring accumulates in DOUBLE: float += 1 saturates at 2^24 counts, which the
+				// beam-entry voxels reach at ~1e8 primaries. The stored field is converted to
+				// fp32 after normalization (get_normalized_field_copy).
 				buffer.add_layer<float>("error", 1.f, "Variance");
-				buffer.add_layer<float>("flux", 0.f, "counts / primary_particles");
-				buffer.add_custom_layer<RadFiled3D::HistogramVoxel<float>>("spectrum", RadFiled3D::HistogramVoxel<float>(spectra_bins, spectra_bin_width, nullptr), 0.f, "eV");
+				buffer.add_layer<double>("flux", 0.0, "counts / primary_particles");
+				buffer.add_custom_layer<RadFiled3D::HistogramVoxel<double>>("spectrum", RadFiled3D::HistogramVoxel<double>(spectra_bins, static_cast<double>(spectra_bin_width), nullptr), 0.0, "eV");
 				if (angular_resolution.x > 0 && angular_resolution.y > 0)
-					buffer.add_custom_layer<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", RadFiled3D::AngularResolvedVoxel<float>(angular_resolution, nullptr), 0.f, "counts / primary_particles");
+					buffer.add_custom_layer<RadFiled3D::AngularResolvedVoxel<double>>("angular_flux", RadFiled3D::AngularResolvedVoxel<double>(angular_resolution, nullptr), 0.0, "counts / primary_particles");
 			}
 
-			ChannelBuffers(const ChannelBuffers& other)
-				: ChannelBuffers(
-					other.buffer,
-					other.buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", 0).get_histogram_bin_width(),
-					other.buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", 0).get_bins(),
-					other.buffer.has_layer("angular_flux") ? other.buffer.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", 0).get_segments() : glm::uvec2(0)
-				) {}
+			// Copying would re-run the main ctor on the SAME VoxelGridBuffer: the duplicate
+			// add_layer calls allocate arrays that map::insert then silently drops (a hard leak),
+			// and the per-voxel statistics would exist twice. Channels constructs in place.
+			ChannelBuffers(const ChannelBuffers&) = delete;
+			ChannelBuffers& operator=(const ChannelBuffers&) = delete;
 		};
 
 		size_t primary_particle_count = 0;
@@ -187,8 +184,10 @@ namespace RadiationSimulation {
 			ChannelBuffers scatter_field;
 			ChannelBuffers xray_beam;
 
-			Channels(const ChannelBuffers& scatter_field, const ChannelBuffers& xray_beam): scatter_field(scatter_field), xray_beam(xray_beam) {}
-			
+			Channels(RadFiled3D::VoxelGridBuffer& scatter_buffer, RadFiled3D::VoxelGridBuffer& xray_buffer, float spectra_bin_width, size_t spectra_bins, const glm::uvec2& angular_resolution)
+				: scatter_field(scatter_buffer, spectra_bin_width, spectra_bins, angular_resolution),
+				  xray_beam(xray_buffer, spectra_bin_width, spectra_bins, angular_resolution) {}
+
 			void reset() {
 				this->scatter_field.reset();
 				this->xray_beam.reset();

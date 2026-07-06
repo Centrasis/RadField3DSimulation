@@ -193,6 +193,9 @@ if(BUILD_TESTS)
 
   function(link_test_target target_name)
     target_include_directories(${target_name} PUBLIC include)
+    # The FetchContent gtest headers must win over any gtest in the Geant4 install prefix (e.g. a
+    # conda env) — mixed gtest header/lib versions fail at link (MakeAndRegisterTestInfo).
+    target_include_directories(${target_name} BEFORE PRIVATE ${googletest_SOURCE_DIR}/googletest/include)
     if (MSVC)
       target_link_libraries(${target_name} ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D libRadField3D GTest::gtest_main)
     else()
@@ -219,16 +222,16 @@ if(BUILD_TESTS)
   add_executable(SourceDistributionTests ${PROJECT_SOURCE_DIR}/targets/test/SourceDistributionTests.cpp)
   link_test_target(SourceDistributionTests)
 
-  add_executable(RSLibPCADirectionTest ${PROJECT_SOURCE_DIR}/targets/test/PCADirectionTests.cpp)
-  link_test_target(RSLibPCADirectionTest)
-
   add_executable(RSLibLoadTest ${PROJECT_SOURCE_DIR}/targets/test/LoadTest.cpp)
   link_test_target(RSLibLoadTest)
+
+  add_executable(DetectorTest ${PROJECT_SOURCE_DIR}/targets/test/DetectorTest.cpp)
+  link_test_target(DetectorTest)
 
   set_target_properties(WorldTest PROPERTIES FOLDER "Tests")
   set_target_properties(CollisionTest PROPERTIES FOLDER "Tests")
   set_target_properties(RSLibLoadTest PROPERTIES FOLDER "Tests")
-  set_target_properties(RSLibPCADirectionTest PROPERTIES FOLDER "Tests")
+  set_target_properties(DetectorTest PROPERTIES FOLDER "Tests")
   set_target_properties(HistogramStatisticsTest PROPERTIES FOLDER "Tests")
   set_target_properties(SourceDistributionTests PROPERTIES FOLDER "Tests")
 

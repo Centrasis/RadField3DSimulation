@@ -1,6 +1,7 @@
 #include "RadiationSimulationHandler.hpp"
 #include <G4RunManagerFactory.hh>
 #include <thread>
+#include <cmath>
 #include "Geant4/G4SceneConstructor.hpp"
 #include <QGSP_BIC_HP.hh>
 #include <G4UIExecutive.hh>
@@ -104,7 +105,8 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 		auto rad_det = std::make_shared<G4RadiationFieldDetector>(
 			this->radiation_field_resolution.radiation_field_dimensions,
 			this->radiation_field_resolution.radiation_field_voxel_dimensions,
-			static_cast<size_t>(this->radiation_field_resolution.radiation_field_max_energy / this->radiation_field_resolution.energy_resolution),
+			// round, don't truncate: 0.12f/0.001f = 119.999992 in float would yield 119 bins for 120 keV / 1 keV
+			static_cast<size_t>(std::round(this->radiation_field_resolution.radiation_field_max_energy / this->radiation_field_resolution.energy_resolution)),
 			static_cast<double>(this->radiation_field_resolution.energy_resolution),
 			this->radiation_field_resolution.statistical_error.threshold,
 			this->radiation_field_resolution.statistical_error.enforcement_ratio,
