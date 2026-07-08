@@ -2,6 +2,8 @@
 #include "GeometryLoader.hpp"
 #include <stdio.h>
 #include <iostream>
+#include <cstdlib>
+#include <vector>
 #include <sstream>
 #include <chrono>
 #include <G4ios.hh>
@@ -113,7 +115,7 @@ int main(int argc, char* argv[]) {
 	RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING;
 
 
-	if (argc <= 1 || argv[1] == "-h" || argv[1] == "--help") {
+	if (argc <= 1 || std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help") {
 		G4cout << "RadiationField Calculator Help:\nThe following parameters should be passed to this program\n" << G4endl;
 		G4cout << "  --geom: Path to a geometry file" << G4endl;
 		G4cout << "  --geom-desc: Path to a geometry description file. Default: <geom[noExt]>.desc" << G4endl;
@@ -366,6 +368,28 @@ int main(int argc, char* argv[]) {
 	// if out_path does not end with .rf3 append it
 	if (out_path.extension() != ".rf3") {
 		out_path.replace_extension(".rf3");
+	}
+
+	// Verify the Geant4 datasets this simulation needs are reachable before initialising Geant4; a missing
+	// dataset otherwise aborts deep inside Geant4 with a cryptic G4Exception. Report clearly and exit.
+	{
+		const char* required_datasets[] = { "G4LEDATA", "G4LEVELGAMMADATA", "G4ENSDFSTATEDATA", "G4PARTICLEXSDATA" };
+		std::vector<std::string> missing;
+		for (const char* var : required_datasets) {
+			const char* path = std::getenv(var);
+			if (path == nullptr || !fs::exists(path))
+				missing.push_back(var);
+		}
+		if (!missing.empty()) {
+			std::cerr << "ERROR: required Geant4 data is not available. The following dataset environment variables are"
+			             " unset or point to a missing directory:" << std::endl;
+			for (const std::string& var : missing)
+				std::cerr << "  - " << var << std::endl;
+			std::cerr << "Install the Geant4 datasets and source the Geant4 environment (e.g. 'source"
+			             " <geant4-install>/bin/geant4.sh', or export the G4*DATA variables; run 'geant4-config"
+			             " --datasets' to list them), then retry." << std::endl;
+			return 1;
+		}
 	}
 
 	if (cpu_count > 0) {
