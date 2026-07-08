@@ -21,7 +21,8 @@ std::shared_ptr<G4RadiationSimulationHandler> RadiationSimulator::initialize(con
 
 void RadiationSimulator::deinitialize()
 {
-	RadiationSimulator::handler->deinitialize();
+	if (RadiationSimulator::handler)
+		RadiationSimulator::handler->deinitialize();
 }
 
 std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulator::simulate_radiation_field(size_t n_particles, RadFiled3D::GridTracerAlgorithm tracing_algorithm)

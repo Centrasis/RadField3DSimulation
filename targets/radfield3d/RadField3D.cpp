@@ -86,6 +86,7 @@ void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, f
 
 
 int main(int argc, char* argv[]) {
+try {
 	fs::path geometry_file = "";
 	fs::path geometry_desc_file = "";
 	fs::path spectrum_file = "";
@@ -541,4 +542,13 @@ int main(int argc, char* argv[]) {
 	RadiationSimulator::deinitialize();
 
 	return 0;
+}
+catch (const std::exception& e) {
+	// Turn any configuration/parse/simulation error into a clear message + non-zero exit instead of an
+	// uncaught-exception abort (core dump). Tear Geant4 down here too (no-op if it was never initialised) so
+	// the run manager is not destroyed at static-exit time, when Geant4's globals are already gone.
+	std::cerr << "ERROR: " << e.what() << std::endl;
+	RadiationSimulator::deinitialize();
+	return 1;
+}
 }

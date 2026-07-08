@@ -30,7 +30,7 @@ You can build and install this application from source by using CMake and a C++ 
   - MSVC or clang from Visual Studio 2022 for Windows
 - CMake >= 3.16
 - Python >= 3.10
-- Geant4 >= 11.0 (validated on 11.0.1), including its data packages (see [Running](#running))
+- Geant4 >= 11.0 (validated on 11.0.0), including its data packages (see [Running](#running))
 - Optional:
     - OpenGL (only needed for the `WITH_GEANT4_UIVIS` visualiser build)
 
