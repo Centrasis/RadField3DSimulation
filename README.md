@@ -47,7 +47,7 @@ cmake -S . -B build            # add -DGeant4_DIR=... if Geant4 is not auto-foun
 cmake --build build -j         # produces bin/RadField3D
 ```
 
-#### Running
+## Running
 RadField3D needs the Geant4 **data packages** at runtime. Install them with your Geant4 build and make the
 `G4*DATA` environment variables available before running — e.g. `source <geant4-install>/bin/geant4.sh`, or set
 them from `geant4-config --datasets`. If a required dataset is missing, RadField3D prints exactly which
