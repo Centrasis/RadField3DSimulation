@@ -5,21 +5,15 @@
 
 using namespace RadiationSimulation;
 
-std::shared_ptr<RadiationSimulationHandler> RadiationSimulator::handler;
+std::shared_ptr<G4RadiationSimulationHandler> RadiationSimulator::handler;
 bool RadiationSimulator::bIsBusy = false;
 
 
-std::shared_ptr<RadiationSimulationHandler> RadiationSimulator::initialize(const RadiationHandlerType handler_type, const int cpu_count)
+std::shared_ptr<G4RadiationSimulationHandler> RadiationSimulator::initialize(const int cpu_count)
 {
 	World::instance = std::make_shared<World>();
 	World::world_info = std::make_unique<WorldInfo>("Air", glm::vec3(1.f));
-	switch (handler_type) {
-		case RadiationHandlerType::Geant4MedicalXRay:
-			RadiationSimulator::handler = std::make_shared<G4RadiationSimulationHandler>(cpu_count);
-			break;
-		default:
-			throw std::runtime_error("Unknown RadiationHandlerType!");
-	}
+	RadiationSimulator::handler = std::make_shared<G4RadiationSimulationHandler>(cpu_count);
 	if (!RadiationSimulator::handler->initialize())
 		throw std::runtime_error("Handler initialization failed!");
 	return RadiationSimulator::handler;
@@ -30,15 +24,13 @@ void RadiationSimulator::deinitialize()
 	RadiationSimulator::handler->deinitialize();
 }
 
-std::promise<std::shared_ptr<RadFiled3D::IRadiationField>> RadiationSimulator::simulate_radiation_field(size_t n_particles, RadFiled3D::GridTracerAlgorithm tracing_algorithm)
+std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulator::simulate_radiation_field(size_t n_particles, RadFiled3D::GridTracerAlgorithm tracing_algorithm)
 {
-	auto promise = std::promise<std::shared_ptr<RadFiled3D::IRadiationField>>();
 	RadiationSimulator::handler->finalize();
 	RadiationSimulator::bIsBusy = true;
 	auto field = RadiationSimulator::handler->simulate_radiation_field(n_particles, tracing_algorithm);
-	promise.set_value(field);
 	RadiationSimulator::bIsBusy = false;
-	return promise;
+	return field;
 }
 
 void RadiationSimulation::RadiationSimulator::add_callback_every_n_particles(std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)> callback, size_t n_particles)

@@ -16,6 +16,7 @@
 #include "Randomize.hh"
 #include <random>
 #include "G4EmStandardPhysics_option4.hh"
+#include "G4Gamma.hh"
 #include "Geant4/G4PhysicsList.hpp"
 #include <glm/gtc/quaternion.hpp>
 
@@ -149,7 +150,7 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 			std::cout << (*processes)[i]->GetProcessName() << std::endl;
 	}
 
-	this->field_detector = std::dynamic_pointer_cast<G4RadiationFieldDetector>(World::Get()->get_radiation_field_detector());
+	this->field_detector = World::Get()->get_radiation_field_detector();
 }
 
 void RadiationSimulation::G4RadiationSimulationHandler::display_gui()
@@ -245,7 +246,7 @@ void RadiationSimulation::G4RadiationSimulationHandler::add_callback_every_n_par
 	callbacks.push_back({ n_particles, callback });
 }
 
-void RadiationSimulation::RadiationSimulationHandler::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, glm::uvec2 angular_resolution)
+void RadiationSimulation::G4RadiationSimulationHandler::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, glm::uvec2 angular_resolution)
 {
 	this->radiation_field_resolution.radiation_field_dimensions = radiation_field_dimensions;
 	this->radiation_field_resolution.radiation_field_voxel_dimensions = radiation_field_voxel_dimensions;

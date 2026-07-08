@@ -1,6 +1,5 @@
 #pragma once
 #include <memory>
-#include <future>
 #include "RadFiled3D/RadiationField.hpp"
 #include "RadiationSource.hpp"
 #include <CLHEP/Random/MTwistEngine.h>
@@ -18,9 +17,9 @@ namespace RadiationSimulation {
 	class G4RadiationFieldDetector;
 
 	/**
-	 * @brief Handler for a radiation simulation process.
+	 * @brief Handler for Geant4-based radiation simulation.
 	 */
-	class RadiationSimulationHandler {
+	class G4RadiationSimulationHandler {
 	protected:
 		struct {
 			glm::vec3 radiation_field_dimensions; ///< Dimensions of the radiation field.
@@ -34,78 +33,7 @@ namespace RadiationSimulation {
 			} statistical_error;
 			glm::uvec2 angular_resolution = glm::uvec2(0); //< Number of segments (phi, theta) for angular distribution per voxel. 0 = disabled
 		} radiation_field_resolution;
-	public:
-		/**
-		 * @brief Initialize the simulation handler.
-		 * @return True if initialization is successful, false otherwise.
-		 */
-		virtual bool initialize() = 0;
 
-		/**
-		 * @brief Finalize the simulation handler.
-		 */
-		virtual void finalize() = 0;
-
-		/**
-		 * @brief Deinitialize the simulation handler.
-		 */
-		virtual void deinitialize() = 0;
-
-		/**
-		 * @brief Set the resolution of the radiation field.
-		 * @param radiation_field_dimensions Dimensions of the radiation field.
-		 * @param radiation_field_voxel_dimensions Voxel dimensions of the radiation field.
-		 * @param radiation_field_max_energy Maximum energy of the radiation field. Defines the histogram bins of the spectra layer.
-		 * @param energy_resolution Energy resolution of the radiation field. Defines the histogram bins of the spectra layer.
-		 * @param statistical_error_threshold Statistical error threshold that needs to be fullfilled by a certain amount of voxels.
-		 * @param statistical_error_enforcement_ratio Ratio of voxels that need to fullfill the statistical error threshold. The enforcement is done on the top x% of voxels sorted by their errors.
-		 */
-		void set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, glm::uvec2 angular_resolution = glm::uvec2(0));
-
-		/**
-		 * @brief Add geometry to the simulation.
-		 * @param meshes Vector of shared pointers to Mesh objects.
-		 */
-		virtual void add_geometry(const std::vector<std::shared_ptr<Mesh>>& meshes) = 0;
-
-		/**
-		 * @brief Simulate the radiation field.
-		 * @param n_particles Maximum number of particles to simulate.
-		 * @param tracing_algorithm Algorithm to use for grid tracing.
-		 * @return Shared pointer to the simulated radiation field.
-		 */
-		virtual std::shared_ptr<RadFiled3D::IRadiationField> simulate_radiation_field(size_t n_particles = 1e+6, RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING) = 0;
-
-		/**
-		 * @brief Display the graphical user interface. Works only if the CMake option WITH_GEANT4_UIVIS is enabled.
-		 */
-		virtual void display_gui() {};
-
-		/**
-		 * @brief Update the graphical user interface. Works only if the CMake option WITH_GEANT4_UIVIS is enabled.
-		 */
-		virtual void update_gui() {};
-
-		/**
-		 * @brief Destructor for the simulation handler.
-		 */
-		virtual ~RadiationSimulationHandler() {};
-
-		/**
-		 * @brief Add a callback to be executed every n particles.
-		 * @param callback Function to be called.
-		 * @param n_particles Number of particles after which the callback is executed.
-		 */
-		virtual void add_callback_every_n_particles(std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)> callback, size_t n_particles) {
-			throw std::runtime_error("Not implemented");
-		};
-	};
-
-	/**
-	 * @brief Handler for Geant4-based radiation simulation.
-	 */
-	class G4RadiationSimulationHandler : public RadiationSimulationHandler {
-	protected:
 		std::vector<std::shared_ptr<Mesh>> meshes;
 		int cpu_count; ///< Number of CPU cores to use.
 		bool run_mgr_initialized = false; ///< Flag indicating if the run manager is initialized.
@@ -125,31 +53,36 @@ namespace RadiationSimulation {
 		G4RadiationSimulationHandler(const int cpu_count = -1);
 
 		/**
+		 * @brief Set the resolution of the radiation field.
+		 */
+		void set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, glm::uvec2 angular_resolution = glm::uvec2(0));
+
+		/**
 		 * @brief Initialize the Geant4 simulation handler.
 		 * @return True if initialization is successful, false otherwise.
 		 */
-		virtual bool initialize() override;
+		virtual bool initialize();
 
 		/**
 		 * @brief Finalize the Geant4 simulation handler.
 		 */
-		virtual void finalize() override;
+		virtual void finalize();
 
 		/**
 		 * @brief Display the graphical user interface.
 		 */
-		virtual void display_gui() override;
+		virtual void display_gui();
 
 		/**
 		 * @brief Update the graphical user interface.
 		 */
-		virtual void update_gui() override;
+		virtual void update_gui();
 
 		/**
 		 * @brief Add geometry to the simulation.
 		 * @param meshes Vector of shared pointers to Mesh objects.
 		 */
-		virtual void add_geometry(const std::vector<std::shared_ptr<Mesh>>& meshes) override;
+		virtual void add_geometry(const std::vector<std::shared_ptr<Mesh>>& meshes);
 
 		/**
 		 * @brief Simulate the radiation field.
@@ -157,12 +90,12 @@ namespace RadiationSimulation {
 		 * @param tracing_algorithm Algorithm to use for grid tracing.
 		 * @return Shared pointer to the simulated radiation field.
 		 */
-		virtual std::shared_ptr<RadFiled3D::IRadiationField> simulate_radiation_field(size_t n_particles = 1e+6, RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING) override;
+		virtual std::shared_ptr<RadFiled3D::IRadiationField> simulate_radiation_field(size_t n_particles = 1e+6, RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING);
 
 		/**
 		 * @brief Deinitialize the Geant4 simulation handler.
 		 */
-		virtual void deinitialize() override;
+		virtual void deinitialize();
 
 		/**
 		 * @brief Get the used field detector.
@@ -175,6 +108,6 @@ namespace RadiationSimulation {
 		 * @param callback Function to be called.
 		 * @param n_particles Number of particles after which the callback is executed.
 		 */
-		virtual void add_callback_every_n_particles(std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)> callback, size_t n_particles) override;
+		virtual void add_callback_every_n_particles(std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)> callback, size_t n_particles);
 	};
 }

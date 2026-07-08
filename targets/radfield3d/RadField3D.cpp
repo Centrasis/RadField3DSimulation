@@ -10,7 +10,7 @@
 #include <RadFiled3D/helpers/Typing.hpp>
 #include <Geant4/G4World.hpp>
 #include <G4SystemOfUnits.hh>
-#include <RadiationFieldDetector.hpp>
+#include <Geant4/G4RadiationFieldDetector.hpp>
 #if defined _WIN32 || defined _WIN64
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -374,7 +374,7 @@ int main(int argc, char* argv[]) {
 	else {
 		G4cout << "Initialize radiation simulation handler to use all available threads." << G4endl;
 	}
-	G4RadiationSimulationHandler* simulation_handler = static_cast<G4RadiationSimulationHandler*>(RadiationSimulator::initialize(RadiationHandlerType::Geant4MedicalXRay, cpu_count).get());
+	G4RadiationSimulationHandler* simulation_handler = RadiationSimulator::initialize(cpu_count).get();
 	RadiationSimulator::set_world_info(std::make_unique<WorldInfo>(world_material, world_dim));
 
 	std::vector<std::shared_ptr<Mesh>> meshes;
@@ -480,7 +480,14 @@ int main(int argc, char* argv[]) {
 	}
 
 	if (should_append_to_file)
+	{
+		// enable_file_lock_syncronization is flagged experimental/deprecated upstream; it is only needed for
+		// the concurrent-append path, which is the one case that relies on it.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 		RadFiled3D::Storage::FieldStore::enable_file_lock_syncronization(true);
+#pragma GCC diagnostic pop
+	}
 
 	G4cout << "Simulating...";
 	G4cout << G4endl << "Writing field to: " << out_path.string() << G4endl;
@@ -499,8 +506,7 @@ int main(int argc, char* argv[]) {
 	}
 #endif
 
-	auto field_promise = RadiationSimulator::simulate_radiation_field(particle_count, tracing_algorithm);
-	auto field = field_promise.get_future().get();
+	auto field = RadiationSimulator::simulate_radiation_field(particle_count, tracing_algorithm);
 	last_particle_count = G4World::Get()->get_radiation_field_detector()->get_number_of_tracked_particles();
 	store_radiation_field(field, out_path, last_particle_count, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, should_append_to_file, start_time, field_shape);
 

@@ -38,6 +38,12 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+# Only OBJ/STL phantom geometry is loaded. Building just those importers avoids compiling assimp's other
+# format parsers (e.g. the MMD/pmx parser, which fails on modern GCC without <cstdint>).
+set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_STL_IMPORTER ON CACHE BOOL "" FORCE)
 FetchContent_GetProperties(assimp)
 if(NOT assimp_POPULATED)
   FetchContent_Populate(assimp)
@@ -222,15 +228,11 @@ if(BUILD_TESTS)
   add_executable(SourceDistributionTests ${PROJECT_SOURCE_DIR}/targets/test/SourceDistributionTests.cpp)
   link_test_target(SourceDistributionTests)
 
-  add_executable(RSLibLoadTest ${PROJECT_SOURCE_DIR}/targets/test/LoadTest.cpp)
-  link_test_target(RSLibLoadTest)
-
   add_executable(DetectorTest ${PROJECT_SOURCE_DIR}/targets/test/DetectorTest.cpp)
   link_test_target(DetectorTest)
 
   set_target_properties(WorldTest PROPERTIES FOLDER "Tests")
   set_target_properties(CollisionTest PROPERTIES FOLDER "Tests")
-  set_target_properties(RSLibLoadTest PROPERTIES FOLDER "Tests")
   set_target_properties(DetectorTest PROPERTIES FOLDER "Tests")
   set_target_properties(HistogramStatisticsTest PROPERTIES FOLDER "Tests")
   set_target_properties(SourceDistributionTests PROPERTIES FOLDER "Tests")

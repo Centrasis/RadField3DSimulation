@@ -6,7 +6,6 @@
 #include <G4Box.hh>
 #include <G4LogicalVolume.hh>
 #include "Geant4/G4World.hpp"
-#include "RadiationFieldDetector.hpp"
 #include "Geant4/G4RadiationFieldDetector.hpp"
 #include <stdexcept>
 #include "G4Tubs.hh"

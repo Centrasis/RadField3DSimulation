@@ -4,7 +4,7 @@
 class G4Box;
 class G4Material;
 class G4LogicalVolume;
-class RadiationFieldDetector;
+class G4RadiationFieldDetector;
 
 namespace RadiationSimulation {
 
@@ -49,8 +49,8 @@ namespace RadiationSimulation {
 		virtual std::shared_ptr<RadiationSource> get_radiation_source() const override { return this->raw_world->get_radiation_source(); };
 		virtual std::shared_ptr<Mesh> get_patient() const override { return this->raw_world->get_patient(); };
 		virtual const std::vector<std::shared_ptr<Mesh>>& get_geometries() const override { return this->raw_world->get_geometries(); };
-		virtual void set_radiation_field_detector(std::shared_ptr<RadiationFieldDetector> field_detector) override { this->raw_world->set_radiation_field_detector(field_detector); }
-		virtual std::shared_ptr<RadiationFieldDetector> get_radiation_field_detector() const override { return this->raw_world->get_radiation_field_detector(); }
+		virtual void set_radiation_field_detector(std::shared_ptr<G4RadiationFieldDetector> field_detector) override { this->raw_world->set_radiation_field_detector(field_detector); }
+		virtual std::shared_ptr<G4RadiationFieldDetector> get_radiation_field_detector() const override { return this->raw_world->get_radiation_field_detector(); }
 
 		/**
 		 * @brief Get the G4Box object.

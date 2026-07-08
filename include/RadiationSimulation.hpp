@@ -10,13 +10,6 @@ namespace RadiationSimulation {
 	struct WorldInfo;
 
 	/**
-	 * @brief Enum class for different types of radiation handlers.
-	 */
-	enum class RadiationHandlerType {
-		Geant4MedicalXRay ///< Handler for Geant4 Medical X-Ray simulations.
-	};
-
-	/**
 	 * @brief Class for managing radiation simulations.
 	 */
 	class RadiationSimulator {
@@ -24,7 +17,7 @@ namespace RadiationSimulation {
 		/**
 		 * @brief Shared pointer to the radiation simulation handler.
 		 */
-		static std::shared_ptr<RadiationSimulationHandler> handler;
+		static std::shared_ptr<G4RadiationSimulationHandler> handler;
 
 		/**
 		 * @brief Flag indicating if the simulator is busy.
@@ -34,10 +27,9 @@ namespace RadiationSimulation {
 	public:
 		/**
 		 * @brief Initializes the radiation simulation handler.
-		 * @param handler_type The type of radiation handler to initialize.
 		 * @return Shared pointer to the initialized radiation simulation handler.
 		 */
-		static std::shared_ptr<RadiationSimulationHandler> initialize(const RadiationHandlerType handler_type, const int cpu_count = -1);
+		static std::shared_ptr<G4RadiationSimulationHandler> initialize(const int cpu_count = -1);
 
 		/**
 		 * @brief Simulates the radiation field. Shall support multi-threading, but is not required to allow a non-blocking call.
@@ -45,7 +37,7 @@ namespace RadiationSimulation {
 		 * @param tracing_algorithm Algorithm to use for grid tracing.
 		 * @return Promise of a shared pointer to the simulated radiation field.
 		 */
-		static std::promise<std::shared_ptr<RadFiled3D::IRadiationField>> simulate_radiation_field(size_t n_particles = 1e+6, RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING);
+		static std::shared_ptr<RadFiled3D::IRadiationField> simulate_radiation_field(size_t n_particles = 1e+6, RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING);
 
 		/**
 		 * @brief Adds a callback function to be called every n particles.

@@ -1,6 +1,6 @@
 #include "Geant4/G4RadiationFieldDetector.hpp"
 #include "RadFiled3D/RadiationField.hpp"
-#include "RadiationFieldDetector.hpp"
+#include <cassert>
 #include <G4Box.hh>
 #include <G4LogicalVolume.hh>
 #include <G4SystemOfUnits.hh>
@@ -139,19 +139,28 @@ void RadiationSimulation::G4RadiationFieldDetector::score_step_for(const G4Step*
 }
 
 RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold, float statistical_error_enforcement_ratio, float statistical_error_enforcement_resolution, const glm::uvec2& angular_resolution)
-	: RadiationFieldDetector(radiation_field_dimensions, radiation_field_voxel_dimensions, spectra_bins, spectra_bin_width),
-	  statistical_error_threshold(statistical_error_threshold),
-	  statistical_error_enforcement_ratio(statistical_error_enforcement_ratio),
+	: field(std::make_shared<RadFiled3D::CartesianRadiationField>(radiation_field_dimensions, radiation_field_voxel_dimensions)),
+	  spectra_bins(spectra_bins),
+	  spectra_bin_width(spectra_bin_width),
 	  buffers(
 	      *static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("scatter_field").get()),
 		  *static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("direct_beam").get()),
 		  static_cast<float>(spectra_bin_width), spectra_bins, angular_resolution
 	  ),
-	  G4UserSteppingAction()
+	  statistical_error_threshold(statistical_error_threshold),
+	  statistical_error_enforcement_ratio(statistical_error_enforcement_ratio)
 {
+	assert(this->field->get_voxel_counts().x > 0 && this->field->get_voxel_counts().y > 0 && this->field->get_voxel_counts().z > 0);
 	this->define_grid_tracer<RadFiled3D::SamplingGridTracer>();
 	this->tracked_events_counter = 0;
 	this->buffers.scatter_field.statistical_error_resolution = statistical_error_enforcement_resolution;
+}
+
+std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::G4RadiationFieldDetector::evaluate()
+{
+	// The scoring field accumulates in double; every consumer gets the normalized fp32 copy.
+	this->evaluate_field();
+	return this->get_normalized_field_copy();
 }
 
 void RadiationSimulation::G4RadiationFieldDetector::SetUp()

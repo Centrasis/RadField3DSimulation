@@ -1,7 +1,6 @@
 #pragma once
 #include <memory>
 #include <vector>
-#include <RadiationFieldDetector.hpp>
 #include <RadFiled3D/RadiationField.hpp>
 #include <G4VSensitiveDetector.hh>
 #include <glm/glm.hpp>
@@ -43,8 +42,14 @@ namespace RadiationSimulation {
 	// per-voxel locks. It is a G4UserSteppingAction but is not registered with Geant4 directly (a per-worker
 	// G4RadiationFieldSteppingAction forwarder is registered instead and calls UserSteppingAction() on it), so
 	// Geant4 owns the per-worker forwarders while the app remains the sole owner of this shared detector.
-	class G4RadiationFieldDetector: public G4UserSteppingAction, public RadiationFieldDetector {
+	class G4RadiationFieldDetector: public G4UserSteppingAction {
 	protected:
+		// The accumulated scoring field and its spectrum layout. Declared first so it is constructed before
+		// `buffers`, whose initializer calls field->add_channel(...).
+		std::shared_ptr<RadFiled3D::CartesianRadiationField> field;
+		const size_t spectra_bins;
+		const double spectra_bin_width;
+
 		class ChannelBuffers {
 		protected:
 			// Striped voxel locks: a voxel always maps to the same mutex (idx % pool), locks are
@@ -217,7 +222,7 @@ namespace RadiationSimulation {
 		bool is_tracking = true;
 		const float simulation_energy_lower_threshold = 1 * keV;
 		void score_step_for(const G4Step* step, const std::vector<size_t>& voxel_indices, TrackStage stage);
-		virtual void evaluate_field() override;
+		void evaluate_field();
 		std::shared_ptr<RadFiled3D::GridTracer> tracer;
 		std::vector< std::function<void(size_t, const G4Step*)>> new_particle_callbacks;
 	public:
@@ -234,8 +239,11 @@ namespace RadiationSimulation {
 		virtual ~G4RadiationFieldDetector() {
 			G4cout << "G4RadiationFieldDetector destroyed" << G4endl;
 		}
-		virtual void SetUp() override;
+		void SetUp();
 		virtual void finalize(size_t particle_count);
+
+		// Runs the field evaluation and returns the normalized fp32 copy.
+		std::shared_ptr<RadFiled3D::IRadiationField> evaluate();
 
 		template<class T>
 		inline void define_grid_tracer() {
@@ -243,14 +251,14 @@ namespace RadiationSimulation {
 			this->tracer = std::make_shared<T>(this->buffers.scatter_field.buffer);
 		}
 
-		virtual size_t get_number_of_tracked_particles() const override;
-		virtual size_t get_primary_particle_count() const override;
+		size_t get_number_of_tracked_particles() const;
+		size_t get_primary_particle_count() const;
 		
 		// Scores one step into the field; invoked for every step by the per-worker forwarder.
 		virtual void UserSteppingAction(const G4Step* step) override;
-		virtual std::shared_ptr<RadFiled3D::IRadiationField> get_normalized_field_copy() override;
+		std::shared_ptr<RadFiled3D::IRadiationField> get_normalized_field_copy();
 
-		virtual float get_statistical_error(size_t primary_particle_count = 0) override;
+		float get_statistical_error(size_t primary_particle_count = 0);
 		void register_on_new_particle(std::function<void(size_t, const G4Step*)> callback);
 	};
 

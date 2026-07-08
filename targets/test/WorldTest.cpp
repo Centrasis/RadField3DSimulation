@@ -11,7 +11,7 @@
 using namespace RadiationSimulation;
 
 int main() {
-	RadiationSimulator::initialize(RadiationHandlerType::Geant4MedicalXRay);
+	RadiationSimulator::initialize();
 
 	RadiationSimulator::set_world_info(std::make_unique<WorldInfo>("Air", glm::vec3(1.f)));
 
@@ -25,13 +25,13 @@ int main() {
 	source->setTransform(glm::vec3(-1.f, 0.f, 0.f), glm::vec3(1.f, 0.f, 0.f));
 	RadiationSimulator::add_radiation_source(source);
 
-	RadiationSimulator::set_radiation_field_resolution(glm::vec3(1.f), glm::vec3(0.1f), 150.f, 4.f);
+	RadiationSimulator::set_radiation_field_resolution(glm::vec3(1.f), glm::vec3(0.1f), 150.f, 4.f, 0.f, 1.f);
 
 	size_t count = 0;
 
 	std::shared_ptr<RadFiled3D::Storage::V1::RadiationFieldMetadata> metadata = std::make_shared<RadFiled3D::Storage::V1::RadiationFieldMetadata>();
 	while (count < 100) {
-		std::shared_ptr<RadFiled3D::IRadiationField> test_field = RadiationSimulator::simulate_radiation_field().get_future().get();
+		std::shared_ptr<RadFiled3D::IRadiationField> test_field = RadiationSimulator::simulate_radiation_field();
 		RadFiled3D::Storage::FieldStore::store(test_field, metadata, "./test.rf");
 		auto test_field_loaded = RadFiled3D::Storage::FieldStore::load("./test.rf");
 

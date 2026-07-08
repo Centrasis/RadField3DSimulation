@@ -7,7 +7,7 @@
 namespace RadiationSimulation {
 	class RadiationSource;
 	class Mesh;
-	class RadiationFieldDetector;
+	class G4RadiationFieldDetector;
 
 	/**
 	 * @brief Structure to hold information about the world.
@@ -36,7 +36,7 @@ namespace RadiationSimulation {
 		friend class G4World;
 	protected:
 		std::shared_ptr<RadiationSource> radiation_source; ///< Radiation source in the world
-		std::shared_ptr<RadiationFieldDetector> field_detector; ///< Detector for radiation field scoring
+		std::shared_ptr<G4RadiationFieldDetector> field_detector; ///< Detector for radiation field scoring
 		std::vector<std::shared_ptr<Mesh>> geometries; ///< Geometries in the world
 		std::shared_ptr<Mesh> patient = std::shared_ptr<Mesh>(NULL); ///< Patient mesh
 		static std::shared_ptr<World> instance; ///< Singleton instance of the world
@@ -72,15 +72,15 @@ namespace RadiationSimulation {
 
 		/**
 		 * @brief Set the radiation field detector.
-		 * @param field_detector Shared pointer to RadiationFieldDetector.
+		 * @param field_detector Shared pointer to G4RadiationFieldDetector.
 		 */
-		virtual void set_radiation_field_detector(std::shared_ptr<RadiationFieldDetector> field_detector) { this->field_detector = field_detector; }
+		virtual void set_radiation_field_detector(std::shared_ptr<G4RadiationFieldDetector> field_detector) { this->field_detector = field_detector; }
 
 		/**
 		 * @brief Get the radiation field detector.
-		 * @return Shared pointer to RadiationFieldDetector.
+		 * @return Shared pointer to G4RadiationFieldDetector.
 		 */
-		virtual std::shared_ptr<RadiationFieldDetector> get_radiation_field_detector() const { return this->field_detector; }
+		virtual std::shared_ptr<G4RadiationFieldDetector> get_radiation_field_detector() const { return this->field_detector; }
 
 		/**
 		 * @brief Set the radiation source.
