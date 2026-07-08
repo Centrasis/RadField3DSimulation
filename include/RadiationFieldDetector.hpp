@@ -65,7 +65,6 @@ namespace RadiationSimulation {
 	};
 
 	class RadiationFieldDetector {
-		friend class RadiationFieldDetector;
 	protected:
 		std::shared_ptr<RadFiled3D::CartesianRadiationField> field;
 		const size_t spectra_bins;

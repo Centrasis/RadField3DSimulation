@@ -29,7 +29,8 @@ namespace RadiationSimulation {
 	 */
 	class ConeSourceShape : public ISourceShape {
 	protected:
-		std::mt19937 rand_engine; ///< Random engine for generating directions.
+		// RNG is per worker thread (thread_local in drawRayDirection) — the shape is shared across MT
+		// workers, so a shared engine would be a data race. Only the config'd distribution is a member.
 		std::uniform_real_distribution<float> rot_angle_distribution; ///< Distribution for rotation angles.
 		float opening_angle_radians; ///< Opening angle in radians.
 	public:
@@ -53,7 +54,7 @@ namespace RadiationSimulation {
 	 */
 	class RectangleSourceShape : public ISourceShape {
 	protected:
-		std::mt19937 rand_engine; ///< Random engine for generating directions.
+		// RNG is per worker thread (thread_local in drawRayDirection); see the note on ConeSourceShape.
 		std::uniform_real_distribution<float> distribution_x; ///< Distribution for generating directions.
 		std::uniform_real_distribution<float> distribution_y; ///< Distribution for generating directions.
 		glm::vec2 size; ///< Size of the rectangle.
@@ -81,7 +82,7 @@ namespace RadiationSimulation {
 	class EllipsoidSourceShape : public ISourceShape {
 	protected:
 		glm::vec2 angles; ///< Angles defining the ellipsoid.
-		std::mt19937 rand_engine;  ///< Random engine for generating directions.
+		// RNG is per worker thread (thread_local in drawRayDirection); see the note on ConeSourceShape.
 		std::uniform_real_distribution<float> distribution; ///< Distribution for generating directions.
 	public:
 		/**

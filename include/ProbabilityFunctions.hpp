@@ -10,7 +10,8 @@ namespace Statistics {
 	class ProbabilityDensityFunction : public XYSeries<T> {
 		protected:
 			std::uniform_real_distribution<T> distribution;
-			std::random_device generator;
+			// RNG is per worker thread (thread_local in draw_sample) — the PDF is shared (shared_ptr)
+			// across MT workers via the radiation source, so a shared generator would be a data race.
 			XYSeries<T> cdf;
 
 		public:
@@ -43,7 +44,11 @@ namespace Statistics {
 			};
 
 			T draw_sample() {
-				T random_probability = this->distribution(this->generator);
+				// Per-worker-thread RNG: this PDF is shared across MT workers, so a shared generator would
+				// be a data race. thread_local gives each worker its own source (same std::random_device
+				// behaviour as before, just no longer shared). The distribution member is read-only here.
+				thread_local std::random_device generator;
+				T random_probability = this->distribution(generator);
 				return this->cdf.get_interpolated(random_probability, &Statistics::Interpolation::Linear<T>);
 			};
 

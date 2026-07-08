@@ -165,6 +165,11 @@ void RadiationSimulation::G4RadiationFieldDetector::SetUp()
 
 void RadiationSimulation::G4RadiationFieldDetector::finalize(size_t particle_count)
 {
+	// clear() invalidates the thread_contexts iterators/references that UserSteppingAction holds lock-free
+	// (it releases the shared_lock right after find()). Take the unique lock so a worker still stepping is
+	// not mid-access during the clear (use-after-free -> segfault at the run boundary / teardown). Lock order
+	// is global-then-buffer (buffers.reset() takes buffer_mutex); no path locks buffer-then-global, so safe.
+	std::unique_lock lock(this->global_detector_mutex);
 	this->primary_particle_count = particle_count;
 	if (this->thread_contexts.size() > 0)
 		this->thread_contexts.clear();
@@ -347,6 +352,15 @@ void RadiationSimulation::G4RadiationFieldDetector::register_on_new_particle(std
 
 void RadiationSimulation::G4RadiationFieldAction::Build() const
 {
-	SetUserAction(this->source.get());
-	SetUserAction(this->det.get());
+	// Geant4 MT calls Build() once PER WORKER THREAD. The primary generator MUST be per-thread: a single
+	// shared G4RadiationSource means every worker mutates one G4ParticleGun, and GeneratePrimaryVertex
+	// allocates G4PrimaryVertex/G4PrimaryParticle through Geant4's THREAD-LOCAL allocators — using them
+	// across threads corrupts the heap -> non-deterministic mid-run segfault. Build a fresh generator per
+	// worker (Geant4 takes ownership and deletes it per-thread). The detector/field is intentionally shared
+	// (accumulated under striped per-voxel locks).
+	// NOTE: rad_source's own RNG (std::mt19937 in the shape) is still shared across workers — a data race on
+	// the random stream (correlated/garbage directions, NOT a crash). Make it per-thread/thread_local next.
+	SetUserAction(new G4RadiationSource(this->rad_source, this->fluence_per_run));
+	// Per-worker forwarder into the shared, app-owned detector (Geant4 owns/deletes THIS, not the detector).
+	SetUserAction(new G4RadiationFieldSteppingAction(this->det.get()));
 }

@@ -36,8 +36,9 @@ G4SceneConstructor::G4SceneConstructor(const std::vector<std::shared_ptr<Mesh>>&
 {
 	this->world_dim = G4ThreeVector(0, 0, 0);
 	for (auto& m : meshes) {
+		// NON-OWNING: G4Mesh is a G4TessellatedSolid, owned by G4SolidStore — see the note in ::Construct.
 		this->g4meshes.push_back(
-			std::make_shared<G4Mesh>(m, length_unit_in_meshes)
+			std::shared_ptr<G4Mesh>(new G4Mesh(m, length_unit_in_meshes), [](G4Mesh*) {})
 		);
 	}
 
@@ -71,10 +72,12 @@ G4VPhysicalVolume* G4SceneConstructor::Construct()
 		0
 	);
 
+	// Geant4's stores own all geometry (G4SolidStore / G4LogicalVolumeStore / the material table delete these
+	// at teardown). Hold them as NON-OWNING shared_ptr (no-op deleter) so only Geant4 deletes them.
 	G4World::initialize(
-		std::shared_ptr<G4Box>(worldBox),
-		std::shared_ptr<G4Material>(world_material),
-		std::shared_ptr<G4LogicalVolume>(trackerLog)
+		std::shared_ptr<G4Box>(worldBox, [](G4Box*) {}),
+		std::shared_ptr<G4Material>(world_material, [](G4Material*) {}),
+		std::shared_ptr<G4LogicalVolume>(trackerLog, [](G4LogicalVolume*) {})
 	);
 
 	for (auto& m : g4meshes) {
@@ -175,7 +178,7 @@ void RadiationSimulation::MaterialSolver::init_custom_materials()
 G4Material* MaterialSolver::get_material(const G4String& name)
 {
 	G4String material_name = name;
-	material_name.toUpper();
+	G4StrUtil::to_upper(material_name);   // G4String::toUpper() is deprecated
 	if (material_name.substr(0, 2) != "G4") {
 		material_name = G4String("G4_") + material_name;
 	}

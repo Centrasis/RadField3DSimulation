@@ -31,6 +31,7 @@ class G4LogicalVolume;
 namespace RadiationSimulation {
 	class Mesh;
 	class G4RadiationSource;
+	class RadiationSource;
 
 	enum class TrackStage : char {
 		BEAM,
@@ -38,6 +39,10 @@ namespace RadiationSimulation {
 		PATIENT
 	};
 
+	// A single app-owned object shared across all MT workers: one accumulated field, guarded by striped
+	// per-voxel locks. It is a G4UserSteppingAction but is not registered with Geant4 directly (a per-worker
+	// G4RadiationFieldSteppingAction forwarder is registered instead and calls UserSteppingAction() on it), so
+	// Geant4 owns the per-worker forwarders while the app remains the sole owner of this shared detector.
 	class G4RadiationFieldDetector: public G4UserSteppingAction, public RadiationFieldDetector {
 	protected:
 		class ChannelBuffers {
@@ -126,7 +131,9 @@ namespace RadiationSimulation {
 						G4cout << "WARNING: Energy value exceeds histogram energy range. Energy: " << energy << " MeV" << G4endl;
 					}
 
-					std::unique_lock lock(this->mutexes[voxel_idx % MUTEX_POOL_SIZE]);
+					// The pool is sized min(voxel_count, MUTEX_POOL_SIZE), so index by the actual size, not the
+				// cap — else a field with < MUTEX_POOL_SIZE voxels indexes past the vector (OOB -> crash).
+				std::unique_lock lock(this->mutexes[voxel_idx % this->mutexes.size()]);
 					this->buffer.get_voxel_flat<RadFiled3D::ScalarVoxel<double>>("flux", voxel_idx) += 1.0;
 
 					(&hist_voxel.get_data())[index] += 1.0;
@@ -239,19 +246,34 @@ namespace RadiationSimulation {
 		virtual size_t get_number_of_tracked_particles() const override;
 		virtual size_t get_primary_particle_count() const override;
 		
-		virtual void UserSteppingAction(const G4Step*) override;
+		// Scores one step into the field; invoked for every step by the per-worker forwarder.
+		virtual void UserSteppingAction(const G4Step* step) override;
 		virtual std::shared_ptr<RadFiled3D::IRadiationField> get_normalized_field_copy() override;
 
 		virtual float get_statistical_error(size_t primary_particle_count = 0) override;
 		void register_on_new_particle(std::function<void(size_t, const G4Step*)> callback);
 	};
 
+	// Lightweight per-worker stepping action owned by Geant4 (one per worker thread, created in Build()). It
+	// owns nothing and routes each step into the single app-owned detector shared by all workers, so every
+	// worker scores into one field.
+	class G4RadiationFieldSteppingAction : public G4UserSteppingAction {
+		G4RadiationFieldDetector* detector;   // non-owning: the app owns the shared detector
+	public:
+		explicit G4RadiationFieldSteppingAction(G4RadiationFieldDetector* detector) : detector(detector) {}
+		virtual void UserSteppingAction(const G4Step* step) override { this->detector->UserSteppingAction(step); }
+	};
+
 	class G4RadiationFieldAction : public G4VUserActionInitialization {
 	protected:
 		std::shared_ptr<G4RadiationFieldDetector> det;
-		std::shared_ptr<G4RadiationSource> source;
+		// The physics source is shared read-only; Build() (called per worker thread) constructs a fresh
+		// G4RadiationSource per worker from it — a single shared generator across MT workers corrupts the
+		// gun's thread-local allocations (non-deterministic mid-run segfault). See the .cpp.
+		std::shared_ptr<RadiationSource> rad_source;
+		int fluence_per_run;
 	public:
-		G4RadiationFieldAction(std::shared_ptr<G4RadiationFieldDetector> det, std::shared_ptr<G4RadiationSource> source) : det(det), source(source) {};
+		G4RadiationFieldAction(std::shared_ptr<G4RadiationFieldDetector> det, std::shared_ptr<RadiationSource> rad_source, int fluence_per_run = 1) : det(det), rad_source(rad_source), fluence_per_run(fluence_per_run) {};
 		void Build() const;
 		virtual ~G4RadiationFieldAction() {
 			G4cout << "G4RadiationFieldAction destroyed" << G4endl;

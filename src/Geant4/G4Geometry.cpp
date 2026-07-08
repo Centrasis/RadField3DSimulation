@@ -103,34 +103,41 @@ G4Mesh::G4Mesh(std::shared_ptr<Mesh> mesh, double length_unit)
 	this->position = G4ThreeVector(mesh->position.x, mesh->position.y, mesh->position.z);
 
 	for (auto& child : mesh->children) {
-		this->children.push_back(std::make_shared<G4Mesh>(child, length_unit));
+		// NON-OWNING: G4Mesh is a G4TessellatedSolid (G4SolidStore-owned) — an owning shared_ptr double-frees.
+		this->children.push_back(std::shared_ptr<G4Mesh>(new G4Mesh(child, length_unit), [](G4Mesh*) {}));
 	}
 }
 
 void G4Mesh::place(G4LogicalVolume* parent)
 {
-	this->physical = std::make_shared<G4PVPlacement>(
-		&this->rotation,
-		this->position,
-		this->getVolume().get(),
-		this->GetName(),
-		parent,
-		false,
-		0,
-		true
+	// NON-OWNING: G4PhysicalVolumeStore owns the placement — an owning shared_ptr double-frees at teardown.
+	this->physical = std::shared_ptr<G4PVPlacement>(
+		new G4PVPlacement(
+			&this->rotation,
+			this->position,
+			this->getVolume().get(),
+			this->GetName(),
+			parent,
+			false,
+			0,
+			true
+		),
+		[](G4PVPlacement*) {}
 	);
 }
 
 void G4Mesh::setMaterial(G4Material* material)
 {
 	G4String type = "Tracker";
-	this->volume = std::make_shared<G4LogicalVolume>(this, material, type);
+	// NON-OWNING: G4LogicalVolumeStore owns the volume — an owning shared_ptr double-frees at teardown.
+	this->volume = std::shared_ptr<G4LogicalVolume>(new G4LogicalVolume(this, material, type), [](G4LogicalVolume*) {});
 }
 
 std::shared_ptr<G4LogicalVolume> G4Mesh::getVolume() {
 	if (!this->volume.get()) {
 		G4String type = "Tracker";
-		this->volume = std::make_shared<G4LogicalVolume>(this, (G4Material*)NULL, type);
+		// NON-OWNING: G4LogicalVolumeStore owns the volume (see setMaterial).
+		this->volume = std::shared_ptr<G4LogicalVolume>(new G4LogicalVolume(this, (G4Material*)NULL, type), [](G4LogicalVolume*) {});
 	}
 	return this->volume;
 }

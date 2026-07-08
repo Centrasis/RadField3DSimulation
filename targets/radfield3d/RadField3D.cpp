@@ -506,9 +506,9 @@ int main(int argc, char* argv[]) {
 
 	G4cout << G4endl << "Wrote field to: " << out_path.string() << G4endl;
 
-	std::quick_exit(EXIT_SUCCESS);
-
-	// RadiationSimulator::deinitialize(); double free error.
+	// Tear down Geant4 while all its globals are still alive; destroying the run manager after main() returns
+	// (via the static handler's destructor) would touch already-freed Geant4 globals.
+	RadiationSimulator::deinitialize();
 
 	return 0;
 }

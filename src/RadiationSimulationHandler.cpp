@@ -102,6 +102,9 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 	}
 
 	if (World::Get()->get_radiation_field_detector().get() == NULL) {
+		// The app is the sole owner of the detector, which is shared across MT workers as one field. Geant4
+		// owns only the per-worker G4RadiationFieldSteppingAction forwarders that route steps into it (see
+		// G4RadiationFieldAction::Build).
 		auto rad_det = std::make_shared<G4RadiationFieldDetector>(
 			this->radiation_field_resolution.radiation_field_dimensions,
 			this->radiation_field_resolution.radiation_field_voxel_dimensions,
@@ -113,7 +116,7 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 			this->radiation_field_resolution.statistical_error.enforcement_resolution,
 			this->radiation_field_resolution.angular_resolution
 		);
-		rad_det->register_on_new_particle([=](size_t evt_count, const G4Step* step) {
+		rad_det->register_on_new_particle([=, this](size_t evt_count, const G4Step* step) {
 			for (auto& cb : this->callbacks) {
 				if (evt_count > 0 && evt_count % cb.first == 0) {
 					std::shared_ptr<RadFiled3D::IRadiationField> field = rad_det->get_normalized_field_copy();
@@ -128,9 +131,7 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 		this->G4mgr->SetUserInitialization(
 			new G4RadiationFieldAction(
 				rad_det,
-				std::make_shared<G4RadiationSource>(
-					World::Get()->get_radiation_source()
-				)
+				World::Get()->get_radiation_source()   // physics source; each worker builds its OWN gun in Build()
 			)
 		);
 	}
@@ -161,7 +162,8 @@ void RadiationSimulation::G4RadiationSimulationHandler::display_gui()
 	this->has_ui = true;
 	this->G4VisManager = std::make_unique<G4VisExecutive>();
 	this->G4VisManager->Initialize();
-	this->G4UIManager = std::shared_ptr<G4UImanager>(G4UImanager::GetUIpointer());
+	// NON-OWNING: G4UImanager is a Geant4-owned singleton — an owning shared_ptr would delete it (double-free).
+	this->G4UIManager = std::shared_ptr<G4UImanager>(G4UImanager::GetUIpointer(), [](G4UImanager*) {});
 	
 	this->G4UIManager->ApplyCommand("/vis/scene/add/trajectories 0");
 	this->G4UIManager->ApplyCommand("/vis/modeling/trajectories/create/drawByParticleID");

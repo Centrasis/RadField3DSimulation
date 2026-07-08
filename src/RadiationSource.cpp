@@ -189,15 +189,18 @@ RadiationSimulation::ConeSourceShape::ConeSourceShape(float opening_angle_deg)
 			  1.f
 		  )
 	  ),
-	  opening_angle_radians(glm::radians(opening_angle_deg)),
-	  rand_engine(std::random_device{}())
+	  opening_angle_radians(glm::radians(opening_angle_deg))
 {
 }
 
 glm::vec3 RadiationSimulation::ConeSourceShape::drawRayDirection()
 {
-	float theta = 2.0f * glm::pi<float>() * this->rot_angle_distribution(this->rand_engine); // Azimuthal angle
-	float phi = acos(1.0f - this->rot_angle_distribution(this->rand_engine) * (1.0f - cos(this->opening_angle_radians))); // Polar angle
+	// One RNG per worker thread: the shape is shared across MT workers (one RadiationSource), so a shared
+	// engine would be a data race. thread_local gives each worker its own stream; the config'd distribution
+	// (a member) is read-only here — uniform_real_distribution mutates only the engine, so this is safe.
+	thread_local std::mt19937 rand_engine{ std::random_device{}() };
+	float theta = 2.0f * glm::pi<float>() * this->rot_angle_distribution(rand_engine); // Azimuthal angle
+	float phi = acos(1.0f - this->rot_angle_distribution(rand_engine) * (1.0f - cos(this->opening_angle_radians))); // Polar angle
 
 	return glm::vec3(
 		std::sin(phi) * std::cos(theta),
@@ -210,16 +213,17 @@ RadiationSimulation::RectangleSourceShape::RectangleSourceShape(const glm::vec2&
 	: size(size),
 	  distance(distance),
 	  distribution_x(-0.5f * size.x, 0.5f * size.x),
-	  distribution_y(-0.5f * size.y, 0.5f * size.y),
-	  rand_engine(std::random_device{}())
+	  distribution_y(-0.5f * size.y, 0.5f * size.y)
 {
-	
+
 }
 
 glm::vec3 RadiationSimulation::RectangleSourceShape::drawRayDirection()
 {
-	float x = this->distribution_x(this->rand_engine);
-	float y = this->distribution_y(this->rand_engine);
+	// Per-worker-thread RNG (see ConeSourceShape::drawRayDirection).
+	thread_local std::mt19937 rand_engine{ std::random_device{}() };
+	float x = this->distribution_x(rand_engine);
+	float y = this->distribution_y(rand_engine);
 
 	return glm::normalize(glm::vec3(x, y, -this->distance));
 }
@@ -231,16 +235,17 @@ RadiationSimulation::EllipsoidSourceShape::EllipsoidSourceShape(const glm::vec2&
 			glm::radians(angles.y)
 		)
 	),
-	distribution(-0.5f, 0.5f),
-	rand_engine(std::random_device{}())
+	distribution(-0.5f, 0.5f)
 {
 }
 
 glm::vec3 RadiationSimulation::EllipsoidSourceShape::drawRayDirection()
 {
+	// Per-worker-thread RNG (see ConeSourceShape::drawRayDirection).
+	thread_local std::mt19937 rand_engine{ std::random_device{}() };
 	// draw ellipsoid direction distribution from 2D-angles
-	float x = this->distribution(this->rand_engine) * this->angles.x;
-	float y = this->distribution(this->rand_engine) * this->angles.y;
+	float x = this->distribution(rand_engine) * this->angles.x;
+	float y = this->distribution(rand_engine) * this->angles.y;
 
 	glm::vec3 direction = glm::vec3(0.f, 0.f, -1.0f);
 	glm::quat rotation = glm::angleAxis(x, glm::vec3(1.0f, 0.0f, 0.0f)) * glm::angleAxis(y, glm::vec3(0.0f, 1.0f, 0.0f));
