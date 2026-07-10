@@ -99,10 +99,7 @@ class Parameter(object):
                 raise Exception("Range must be either int or float")
         else:
             idx = random.randint(0, len(self.range) - 1)
-            chosen = self.range[idx]
-            if isinstance(chosen, (list, tuple)) and all(isinstance(v, (int, float)) for v in chosen):
-                return " ".join(str(c) for c in chosen)
-            return chosen
+            return self.range[idx]
 
     def get_value(self) -> Any:
         """Get the value of the parameter if it is not a range, otherwise raise an exception."""
@@ -769,6 +766,9 @@ if __name__ == "__main__":
                     theta = param.value
                 elif param.name == "source_opening_angle":
                     source_opening_angle = param.value
+                    # a fixed rectangle size may be given as a list [x, y]; the CLI expects "x y"
+                    if isinstance(source_opening_angle, (list, tuple)):
+                        source_opening_angle = " ".join(str(c) for c in source_opening_angle)
                 elif param.name == "source_shape":
                     source_shape = param.value
                 elif param.name == "source_spectra":

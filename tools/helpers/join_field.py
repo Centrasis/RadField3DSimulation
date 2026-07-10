@@ -58,7 +58,7 @@ def join_rf3_file(
     path: str,
     direct_channel: str = "direct_beam",
     scatter_channel: str = "scatter_field",
-    joined_channel: str = "joined_beam",
+    joined_channel: str = "radiation",
 ) -> None:
     """Join the direct-beam and scatter channels of the field at ``path`` into one channel.
 
