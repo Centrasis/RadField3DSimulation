@@ -16,6 +16,36 @@ set(PROJECT_VERSION 1.0.0)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+# ---------------------------------------------------------------------------
+# Sanitizer build (for hunting the non-deterministic MT segfault).
+#   cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DRS_SANITIZER=address
+#   cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DRS_SANITIZER=thread
+# address = use-after-free / heap overflow / double-free (start here — it targets the
+#           memory corruption that produces the SIGSEGV); thread = data races.
+# Set here, before any target or FetchContent subdirectory is defined, so every TU
+# (ours + libRadFiled3D, where the threaded scoring lives) is instrumented and the
+# runtime is linked into the RadField3D executable. Geant4 itself is a prebuilt lib and
+# stays uninstrumented — races inside our code are still caught; ASan/TSan tolerate the gap.
+# Runtime hints: ASan  -> ASAN_OPTIONS=detect_leaks=0:abort_on_error=1  (Geant4 keeps
+#                         singletons alive at exit, which LeakSanitizer would flag)
+#                TSan  -> TSAN_OPTIONS=suppressions=<file>:history_size=7  to mute Geant4-internal races
+# ---------------------------------------------------------------------------
+set(RS_SANITIZER "OFF" CACHE STRING "Build with a sanitizer: OFF, address, thread, undefined, or address,undefined")
+set_property(CACHE RS_SANITIZER PROPERTY STRINGS OFF address thread undefined address,undefined)
+if(NOT RS_SANITIZER STREQUAL "OFF")
+  if(MSVC)
+    message(FATAL_ERROR "RS_SANITIZER is wired up for GCC/Clang only (the Linux cluster build).")
+  endif()
+  if(RS_SANITIZER MATCHES "address" AND RS_SANITIZER MATCHES "thread")
+    message(FATAL_ERROR "AddressSanitizer and ThreadSanitizer are mutually exclusive; build them in separate trees.")
+  endif()
+  message(STATUS "Building with sanitizer: ${RS_SANITIZER}")
+  # -UNDEBUG re-enables the detector's assert()s under RelWithDebInfo/Release (which define NDEBUG);
+  # -fno-omit-frame-pointer / -fno-optimize-sibling-calls keep the crash stacks readable.
+  add_compile_options(-fsanitize=${RS_SANITIZER} -fno-omit-frame-pointer -fno-optimize-sibling-calls -g -UNDEBUG)
+  add_link_options(-fsanitize=${RS_SANITIZER})
+endif()
+
 message(STATUS "Download Eigen...")
 FetchContent_Declare(
   eigen

@@ -1,5 +1,6 @@
 #include "Geant4/G4SceneConstructor.hpp"
 #include "Geometry.hpp"
+#include "RadiationSource.hpp"
 #include <G4NistManager.hh>
 #include <G4ThreeVector.hh>
 #include <G4PVPlacement.hh>
@@ -8,6 +9,8 @@
 #include "Geant4/G4World.hpp"
 #include "Geant4/G4RadiationFieldDetector.hpp"
 #include <stdexcept>
+#include <functional>
+#include <glm/glm.hpp>
 #include "G4Tubs.hh"
 
 
@@ -48,25 +51,59 @@ G4VPhysicalVolume* G4SceneConstructor::Construct()
 {
 	//auto world_info = World::get_world_info();
 
-	if (this->max_world_extend.x < World::get_world_info()->dimensions.x * m || this->max_world_extend.y < World::get_world_info()->dimensions.y * m || this->max_world_extend.z < World::get_world_info()->dimensions.z * m) {
-		throw std::runtime_error("Tracking volume is too big for the max world size!");
-	}
-	
+	// Size the world so it at least matches the configured field (World::dimensions) but grows to enclose
+	// the geometry and the source when either exceeds it: the geometry may be larger than the scored field
+	// and the source can sit outside it, yet every primary vertex and all geometry must lie inside the
+	// world. A snug fit also avoids tracking through an oversized air volume.
 	this->world_dim = G4ThreeVector(World::get_world_info()->dimensions.x * m, World::get_world_info()->dimensions.y * m, World::get_world_info()->dimensions.z * m);
+
+	// Start from the configured field size (WorldDim is the full extent, so its half is the floor). The
+	// geometry and source reaches carry a small margin so neither sits exactly on the world boundary, but
+	// the floor itself is not inflated: when nothing exceeds WorldDim, the world equals WorldDim.
+	glm::vec3 half_extent = glm::vec3(this->world_dim.x(), this->world_dim.y(), this->world_dim.z()) / 2.f;
+
+	const float margin = 1.05f;
+	std::function<void(const std::shared_ptr<G4Mesh>&, const glm::vec3&)> grow_to_mesh =
+		[&](const std::shared_ptr<G4Mesh>& gm, const glm::vec3& parent_pos) {
+			const glm::vec3 pos = parent_pos + gm->getMesh()->getPosition();   // world position, G4 units
+			const auto& bb = gm->getBoundingBox();                             // local AABB, G4 units
+			half_extent = glm::max(half_extent, margin * glm::abs(pos + bb.first));
+			half_extent = glm::max(half_extent, margin * glm::abs(pos + bb.second));
+			for (const auto& child : gm->getChildren())
+				grow_to_mesh(child, pos);
+		};
+	for (const auto& gm : this->g4meshes)
+		grow_to_mesh(gm, glm::vec3(0.f));
+
+	if (World::Get()->get_radiation_source() != nullptr) {
+		const glm::vec3 source_pos = World::Get()->get_radiation_source()->getLocation() * static_cast<float>(m);
+		half_extent = glm::max(half_extent, margin * glm::abs(source_pos));
+	}
+
+	this->max_world_extend = half_extent * 2.f;
+
+	G4cout << "World volume full extent: "
+	       << max_world_extend.x / m << " x " << max_world_extend.y / m << " x " << max_world_extend.z / m
+	       << " m (recorded field: "
+	       << world_dim.x() / m << " x " << world_dim.y() / m << " x " << world_dim.z() / m << " m)" << G4endl;
+
 	G4Box* worldBox = new G4Box("World", this->max_world_extend.x / 2.0, this->max_world_extend.y / 2.0, this->max_world_extend.z / 2.0);
 	this->world_material = MaterialSolver::get_material(World::get_world_info()->material);
 	if (this->world_material == NULL)
 		throw std::runtime_error("World Material could not be loaded!");
 
 	G4LogicalVolume* worldLog = new G4LogicalVolume(worldBox, world_material, "World");
-	G4Box* tracker_box = new G4Box("Tracker", world_dim.x() / 2.0, world_dim.y() / 2.0, world_dim.z() / 2.0);
-	G4LogicalVolume* trackerLog = new G4LogicalVolume(tracker_box, world_material, "Tracker");
-	G4VPhysicalVolume* trackerPhys = new G4PVPlacement(
+	// Geometry is placed directly in the (large) world, not in a box the size of the scored field. Flux is
+	// scored per step from the voxel position (bounds-checked in the detector), so the recorded field
+	// (World::dimensions) may be SMALLER than the geometry: the mesh simply extends beyond the field into
+	// the surrounding world. A physical tracker box the size of the field would instead force the field to
+	// enclose the whole mesh (the mesh would otherwise protrude its mother volume).
+	G4VPhysicalVolume* worldPhys = new G4PVPlacement(
 		0,
 		G4ThreeVector(0, 0, 0),
-		trackerLog,
-		"Tracker",
 		worldLog,
+		"World",
+		nullptr,
 		false,
 		0
 	);
@@ -76,18 +113,18 @@ G4VPhysicalVolume* G4SceneConstructor::Construct()
 	G4World::initialize(
 		std::shared_ptr<G4Box>(worldBox, [](G4Box*) {}),
 		std::shared_ptr<G4Material>(world_material, [](G4Material*) {}),
-		std::shared_ptr<G4LogicalVolume>(trackerLog, [](G4LogicalVolume*) {})
+		std::shared_ptr<G4LogicalVolume>(worldLog, [](G4LogicalVolume*) {})
 	);
 
 	for (auto& m : g4meshes) {
-		this->place_mesh(m, trackerLog);
+		this->place_mesh(m, worldLog);
 	}
 
 	if (World::Get()->get_radiation_field_detector()) {
 		World::Get()->get_radiation_field_detector()->SetUp();
 	}
 
-	return trackerPhys;
+	return worldPhys;
 }
 
 void G4SceneConstructor::ConstructSDandField()

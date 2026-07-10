@@ -18,6 +18,7 @@ namespace RadiationSimulation {
 
 	class Face {
 	public:
+		virtual ~Face() = default;
 		virtual FaceType getType() const = 0;
 	};
 
@@ -65,6 +66,14 @@ namespace RadiationSimulation {
 
 	public:
 		Mesh(const std::vector<glm::vec3>& vertices, const std::vector<Face*>& faces, const std::string& name);
+
+		// Mesh owns the heap-allocated Face* in `faces` (created by the geometry loader) and frees them here.
+		~Mesh();
+
+		// The faces are raw owning pointers: copying a Mesh would alias them and double-free on teardown.
+		// Meshes are always handled via shared_ptr, so forbid copies rather than deep-copy the faces.
+		Mesh(const Mesh&) = delete;
+		Mesh& operator=(const Mesh&) = delete;
 
 		void attachMaterialName(const std::string name);
 

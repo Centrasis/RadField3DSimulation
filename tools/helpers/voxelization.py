@@ -126,7 +126,7 @@ class VoxelizationHelper:
         :param description_file: Optional path to a description file
         :param logger: Optional logger to log information during processing
         :param world_center_m: Grid-frame position of the world center in meters. Defaults to the
-            grid center; pass the shifted center when the field was cropped asymmetrically.
+            grid center; pass a shifted center when the field is not centered on the world origin.
         :return: Voxel grid as a numpy array.
         """
         meshes = VoxelizationHelper.load_meshes(geom_file)

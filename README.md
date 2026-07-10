@@ -170,6 +170,7 @@ Parameters:
 - *clean*: Issues to first remove all radiation field files that already exist and do not append to them.
 - *bin_count*: Sets the energy resolution according to the desired bin count and maximum energy.
 - *tracer_algorithm*: The used algorithm to find intersected voxels for a given particle path. Can be one of `sampling`, `bresenham` or `linetracing`.
+- *join_channels*: Optional post-simulation step. Joins the `direct_beam` and `scatter_field` channels into a single per-primary field (removing the two originals) to roughly halve the per-field storage. The flux is summed (staying per primary particle); the spectrum is combined as a flux-weighted per-voxel mix and renormalized per voxel; the statistical error is the mean; any other channel (e.g. the voxelized geometry) is kept unchanged.
 - *sequence_file*: Optional: Allows to load some of the options sequentially from a JSON-File to automate specific dataset configurations under specified conditions.
 - *dataset_definition*: Provide the path to a JSON file containing a whole dataset generation definition. This overrdides all other parameters except for `--dest`, `--binary` and `--cluster_node_partition`. An Example can be found below.
 - **cluster**: An optional cluster submenu for specialized cluster actions
@@ -223,6 +224,17 @@ Parameters:
     ]
 }
 ```
+
+Every entry in `Parameters` is sampled once per field and accepts one of: `"value": x` (fixed), `"values": [a, b, c]` (a discrete set sampled uniformly) or `"range": [min, max]` (a continuous range sampled uniformly).
+
+For a `rectangle` source, `source_opening_angle` is the pair of beam extents in metres at `source_distance` — i.e. the collimated field size in the centre of the scene — and additionally supports a range so the collimation can be sampled continuously. A range is given as a **min vector and a max vector** `[[x_min, y_min], [x_max, y_max]]`; each axis is sampled independently between the two corners (so non-square collimation is allowed):
+- `"value": "0.10 0.10"` (or `"value": [0.10, 0.10]`) — a fixed 10 cm × 10 cm field.
+- `"range": [[0.05, 0.05], [0.20, 0.20]]` — sample x and y independently within 5–20 cm.
+- `"range": [[0.05, 0.10], [0.20, 0.15]]` — an asymmetric range: x within 5–20 cm, y within 10–15 cm.
+
+Patient/object motion is sampled per field via a top-level `GeometryTransformations` block that gives per-axis `Translation`/`Rotation`/`Scale` ranges for a named object in the geometry's `.desc`, e.g. `{ "Patient": { "Translation": { "Y": [-0.5, 0.5] } } }`.
+
+An optional post-simulation step is configured from `Metaparameters`: `"JoinChannels": true` merges the `direct_beam` and `scatter_field` channels into one per-primary field to roughly halve the stored size (see the `join_channels` generator option above). The stored field size is set directly by `WorldDim` / `VoxelSize` (e.g. `WorldDim [1.28, 1.28, 1.28]` at `VoxelSize 0.02` gives 64³); the geometry may be larger than the world.
 
 #### Example of a sequence file
 ```json

@@ -15,7 +15,7 @@ from typing import NamedTuple, cast
 import datetime
 import platform
 from helpers.voxelization import VoxelizationHelper
-from helpers import crop_rf3_file
+from helpers import join_rf3_file, add_patient_translation
 import uuid
 from copy import deepcopy
 import logging
@@ -59,19 +59,37 @@ class ParameterValue(NamedTuple):
 
 
 class Parameter(object):
-    VALID_NAMES = ["energy", "source_distance", "source_angle_phi", "source_angle_theta", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim", "crop_world", "world_material", "angular_resolution"]
+    VALID_NAMES = ["energy", "source_distance", "source_angle_phi", "source_angle_theta", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim", "world_material", "angular_resolution"]
 
     def __init__(self, name: str, range: Union[tuple[int, int], tuple[float, float], list[any]], is_range: bool = None):
         self.name = name.lower()
         assert name in Parameter.VALID_NAMES, f"Parameter name must be one of {Parameter.VALID_NAMES} not {name}"
         self.range = list(range) if isinstance(range, (list, set, tuple)) else [range]
         assert len(range) > 0, "Range must have at least one element"
-        if is_range is None:
+        # A vector range specifies a rectangle-beam collimation as a MIN vector and a MAX vector, i.e.
+        # [[x_min, y_min], [x_max, y_max]]. Each axis is sampled independently between the two corner
+        # vectors and joined into an "x y" string. A single fixed size is a value ("0.1 0.1" or [0.1, 0.1]).
+        def _is_numeric_vec(e):
+            return isinstance(e, (list, tuple)) and len(e) >= 1 and all(isinstance(v, (int, float)) for v in e)
+        self.is_vector_range = (
+            len(self.range) == 2 and _is_numeric_vec(self.range[0]) and _is_numeric_vec(self.range[1])
+            and len(self.range[0]) == len(self.range[1])
+        )
+        if self.is_vector_range:
+            self.is_range = False
+        elif is_range is None:
             self.is_range = len(range) == 2 and ((isinstance(range[0], int) and isinstance(range[1], int)) or (isinstance(range[0], float) and isinstance(range[1], float)))
         else:
             self.is_range = is_range
 
     def sample(self) -> Any:
+        if self.is_vector_range:
+            lo, hi = self.range[0], self.range[1]
+            components = [
+                random.randint(a, b) if isinstance(a, int) and isinstance(b, int) else random.uniform(a, b)
+                for a, b in zip(lo, hi)
+            ]
+            return " ".join(str(c) for c in components)
         if self.is_range:
             if isinstance(self.range[0], int):
                 return random.randint(self.range[0], self.range[1])
@@ -81,11 +99,14 @@ class Parameter(object):
                 raise Exception("Range must be either int or float")
         else:
             idx = random.randint(0, len(self.range) - 1)
-            return self.range[idx]
+            chosen = self.range[idx]
+            if isinstance(chosen, (list, tuple)) and all(isinstance(v, (int, float)) for v in chosen):
+                return " ".join(str(c) for c in chosen)
+            return chosen
 
     def get_value(self) -> Any:
         """Get the value of the parameter if it is not a range, otherwise raise an exception."""
-        if self.is_range:
+        if self.is_range or self.is_vector_range:
             raise Exception("Cannot get value of a range parameter, use sample() instead")
         else:
             return self.range[0]
@@ -154,7 +175,6 @@ class ParameterSequence(ParameterSelector):
         bin_count = Parameter("bin_count", [file_content["Metaparameters"]["BinCount"]]) if "BinCount" in file_content["Metaparameters"] else None
         voxel_size = Parameter("voxel_size", [file_content["Metaparameters"]["VoxelSize"]]) if "VoxelSize" in file_content["Metaparameters"] else None
         world_dim = Parameter("world_dim", [file_content["Metaparameters"]["WorldDim"]]) if "WorldDim" in file_content["Metaparameters"] else None
-        crop_world = Parameter("crop_world", [file_content["Metaparameters"]["CropWorld"]]) if "CropWorld" in file_content["Metaparameters"] else None
         angular_resolution = Parameter("angular_resolution", [file_content["Metaparameters"]["AngularResolution"]]) if "AngularResolution" in file_content["Metaparameters"] else None
         world_material = Parameter("world_material", [file_content["Metaparameters"]["WorldMaterial"]]) if "WorldMaterial" in file_content["Metaparameters"] else None
 
@@ -172,8 +192,6 @@ class ParameterSequence(ParameterSelector):
                 pset.values.append(voxel_size)
             if not any([p.name == "world_dim" for p in pset.values]) and world_dim is not None:
                 pset.values.append(world_dim)
-            if not any([p.name == "crop_world" for p in pset.values]) and crop_world is not None:
-                pset.values.append(crop_world)
             if not any([p.name == "angular_resolution" for p in parameters]) and angular_resolution is not None:
                 pset.values.append(angular_resolution)
             if not any([p.name == "world_material" for p in pset.values]) and world_material is not None:
@@ -229,7 +247,6 @@ class ParameterizedSampler(ParameterSelector):
         bin_count = Parameter("bin_count", [file_content["Metaparameters"]["BinCount"]]) if "BinCount" in file_content["Metaparameters"] else None
         voxel_size = Parameter("voxel_size", [file_content["Metaparameters"]["VoxelSize"]]) if "VoxelSize" in file_content["Metaparameters"] else None
         world_dim = Parameter("world_dim", [file_content["Metaparameters"]["WorldDim"]]) if "WorldDim" in file_content["Metaparameters"] else None
-        crop_world = Parameter("crop_world", [file_content["Metaparameters"]["CropWorld"]]) if "CropWorld" in file_content["Metaparameters"] else None
         angular_resolution = Parameter("angular_resolution", [file_content["Metaparameters"]["AngularResolution"]]) if "AngularResolution" in file_content["Metaparameters"] else None
         world_material = Parameter("world_material", [file_content["Metaparameters"]["WorldMaterial"]]) if "WorldMaterial" in file_content["Metaparameters"] else None
         
@@ -245,8 +262,6 @@ class ParameterizedSampler(ParameterSelector):
             parameters.append(voxel_size)
         if not any([p.name == "world_dim" for p in parameters]) and world_dim is not None:
             parameters.append(world_dim)
-        if not any([p.name == "crop_world" for p in parameters]) and crop_world is not None:
-            parameters.append(crop_world)
         if not any([p.name == "angular_resolution" for p in parameters]) and angular_resolution is not None:
             parameters.append(angular_resolution)
         if not any([p.name == "world_material" for p in parameters]) and world_material is not None:
@@ -404,6 +419,39 @@ class GeometrySampler(object):
             f.write(content)
 
 
+def read_patient_translation_from_desc(desc_path: str):
+    """Return the patient object's (X, Y, Z) translation from a geometry description file, or None.
+
+    Recursively searches for the object flagged as the patient ("Patient": true) and reads its
+    Transform.Translation. Missing axes default to 0.
+    """
+    with open(desc_path, "r") as f:
+        desc = json.loads(f.read())
+
+    def find_patient(objects: dict):
+        for obj in objects.values():
+            if not isinstance(obj, dict):
+                continue
+            if obj.get("Patient") is True:
+                return obj
+            children = obj.get("Children")
+            if isinstance(children, dict):
+                found = find_patient(children)
+                if found is not None:
+                    return found
+        return None
+
+    patient = find_patient(desc)
+    if patient is None:
+        return None
+    translation = patient.get("Transform", {}).get("Translation", {})
+    return (
+        float(translation.get("X", 0.0)),
+        float(translation.get("Y", 0.0)),
+        float(translation.get("Z", 0.0)),
+    )
+
+
 def write_spectrum_file(src_file: str, out_path: str):
     if not os.path.exists(os.path.dirname(out_path)):
         try:
@@ -459,7 +507,7 @@ if __name__ == "__main__":
     parser.add_argument("--voxel_size", default=0.05, type=float, nargs=1, required=False, help="Dimension of the cubic voxels in m")
     parser.add_argument("--world_size", default=[1, 1, 1], type=float, nargs=3, required=False, help="Dimension of the rectangular world in m")
     parser.add_argument("--angular_resolution", default=[0, 0], type=int, nargs=2, required=False, help="Enables an extra layer that captures the angular distribution of the flux in each voxel.")
-    parser.add_argument("--crop_world", default=None, type=int, nargs=3, required=False, help="Post simulation crop the field to a smaller voxel count per dimension (like: 32, 32, 32).")
+    parser.add_argument("--join_channels", default=False, action="store_true", required=False, help="Post simulation join the direct_beam and scatter_field channels into a single per-primary field (removing the originals) to save memory. Flux is summed; the spectrum is combined flux-weighted per voxel.")
     parser.add_argument("--energy_res", default=1e+2, type=float, nargs=1, required=False, help="Energy resolution to use in eV for the sampling of new energies during dataset creation.")
     parser.add_argument("--binary", default="RadField3D.exe", type=str, nargs=1, required=False, help="Path to RadField3D Binary")
     parser.add_argument("--spectra", default=None, type=str, nargs=1, required=False, help="Path to a folder of a spectra dataset or a single spectrum that should be used. (Disables energy sampling)")
@@ -500,7 +548,6 @@ if __name__ == "__main__":
     particles: float = args.particles[0] if isinstance(args.particles, list) else args.particles
     energy_resolution: float = args.energy_res[0] if isinstance(args.energy_res, list) else args.energy_res
     world_size: List[float] = args.world_size
-    crop_world = args.crop_world
     angular_resolution = args.angular_resolution
     voxel_size: float = args.voxel_size[0] if isinstance(args.voxel_size, list) else args.voxel_size
     geometry_file: str = args.geometry[0] if isinstance(args.geometry, list) else args.geometry
@@ -597,7 +644,23 @@ if __name__ == "__main__":
     geometry_sampler = None
     if dataset_definition_file is not None and GeometrySampler.can_load_from(dataset_definition_file):
         geometry_sampler = GeometrySampler.load_from(dataset_definition_file)
-    
+
+    # Post-simulation join of the direct_beam + scatter_field channels: enabled by --join_channels or by
+    # a "JoinChannels": true metaparameter in the dataset definition.
+    should_join_channels = bool(args.join_channels)
+    if dataset_definition_file is not None:
+        try:
+            _definition_meta = json.load(open(dataset_definition_file, "r")).get("Metaparameters", {})
+            should_join_channels = should_join_channels or bool(_definition_meta.get("JoinChannels", False))
+        except Exception as e:
+            LOGGER.warning(f"Could not read JoinChannels from dataset definition: {e}")
+
+    # Patient translation is "on" when the GeometryTransformations sample a Translation for the patient;
+    # only then is the applied translation captured into each field's dynamic metadata.
+    patient_translation_enabled = geometry_sampler is not None and any(
+        "Translation" in transforms for transforms in geometry_sampler.object_transformation_ranges.values()
+    )
+
     # Seed from hostname and current datetime
     random.seed(hash(platform.node() + str(datetime.datetime.now().timestamp())))
 
@@ -615,7 +678,6 @@ if __name__ == "__main__":
             Parameter("voxel_size", [voxel_size]),
             Parameter("particles", [particles]),
             Parameter("world_dim", [world_size]),
-            Parameter("crop_world", [crop_world]),
             Parameter("angular_resolution", [angular_resolution]),
             Parameter("world_material", ["Air"])
         ]
@@ -694,7 +756,6 @@ if __name__ == "__main__":
         for nb_sample, sample_parameters in enumerate(parameters):
             spectra_path: Union[str, None] = None
             world_material = "Air"
-            crop_world = None
             nb_sample += preexisting_samples_max_nb
             out_file_basename = str(uuid.uuid4()).replace('-', '') if USE_RANDOM_NAMES else f"{nb_sample:04d}"
             for param in sample_parameters:
@@ -740,8 +801,6 @@ if __name__ == "__main__":
                     particles = param.value
                 elif param.name == "world_dim":
                     world_size = param.value
-                elif param.name == "crop_world":
-                    crop_world = param.value
                 elif param.name == "angular_resolution":
                     angular_resolution = param.value
                 elif param.name == "world_material":
@@ -879,8 +938,6 @@ if __name__ == "__main__":
             if not cluster_should_generate_batch:
                 if os.path.exists(out_path):
                     LOGGER.info(f"Field was written to -> [green]{out_path}[/]")
-                    if crop_world is not None:
-                        crop_rf3_file(out_path, crop_world)
 
                     field = cast(CartesianRadiationField, FieldStore.load(out_path))
                     LOGGER.debug(f"Loaded field from {out_path} for voxelization...")
@@ -889,26 +946,26 @@ if __name__ == "__main__":
                             LOGGER.warning(f"Geometry file {geometry_file} does not exist! Skipping voxelization.")
                             continue
                         voxels = field.get_voxel_counts()
-                        world_center = None
-                        if crop_world is not None:
-                            counts = np.asarray(crop_world, dtype=int).reshape(-1)
-                            counts = np.repeat(counts, 3) if counts.size == 1 else counts
-                            dims = np.asarray(world_size, dtype=float).reshape(-1)
-                            dims = np.repeat(dims, 3) if dims.size == 1 else dims
-                            original = np.round(dims / voxel_size).astype(int)
-                            starts = (original - counts) // 2
-                            world_center = (original / 2.0 - starts) * voxel_size
                         voxel_grid = VoxelizationHelper.generate_voxelgrid_with_geometry(
                             geom_file=geometry_file,
                             voxel_size=voxel_size,
                             grid_size=(int(voxels.x), int(voxels.y), int(voxels.z)),
                             description_file=geometry_desc_file if geometry_desc_file is not None and os.path.exists(geometry_desc_file) else None,
                             logger=LOGGER,
-                            world_center_m=world_center
                         )
                         write_voxelized_geometry_to_field(voxel_grid, field, out_path)
                     else:
                         LOGGER.warning(f"No field or geometry file provided for voxelization. Skipping voxelization.")
+
+                    if patient_translation_enabled and geometry_desc_file is not None and os.path.exists(geometry_desc_file):
+                        translation = read_patient_translation_from_desc(geometry_desc_file)
+                        if translation is not None:
+                            LOGGER.info(f"Recording patient translation {translation} m into the field metadata...")
+                            add_patient_translation(out_path, translation)
+
+                    if should_join_channels:
+                        LOGGER.info("Joining direct_beam and scatter_field channels into a single per-primary field to save memory...")
+                        join_rf3_file(out_path)
                 else:
                     LOGGER.error(f"Field was not written to -> {out_path}")
 

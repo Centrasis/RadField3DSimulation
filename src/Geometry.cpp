@@ -13,6 +13,12 @@ Mesh::Mesh(const std::vector<glm::vec3>& vertices, const std::vector<Face*>& fac
 {
 }
 
+Mesh::~Mesh()
+{
+	for (Face* face : this->faces)
+		delete face;
+}
+
 void Mesh::attachMaterialName(const std::string name)
 {
 	this->material_name = name;

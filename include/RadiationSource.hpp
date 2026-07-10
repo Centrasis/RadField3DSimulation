@@ -17,6 +17,7 @@ namespace RadiationSimulation {
 	 */
 	class ISourceShape {
 	public:
+		virtual ~ISourceShape() = default;
 		/**
 		 * @brief Draws a ray direction at random.
 		 * @return The direction of the ray as a glm::vec3.
