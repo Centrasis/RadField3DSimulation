@@ -172,6 +172,38 @@ set_target_properties(RadField3D
   RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin"
 )
 
+# --- RadField3D-Analytical: GPU analytical (non-Monte-Carlo) simulator ----------------------------
+# A drop-in --binary for tools/create_dataset.py that generates low-accuracy fields fast, to
+# pre-flight network trainability. Geant4-free (reuses only GeometryLoader + the mesh types); needs
+# CUDA + cuFFT. Disabled by default; enable with -DBUILD_ANALYTICAL=ON.
+option(BUILD_ANALYTICAL "Build the analytical CUDA ray-tracing simulator target" OFF)
+if(BUILD_ANALYTICAL)
+  enable_language(CUDA)
+  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES native)
+  endif()
+  find_package(CUDAToolkit REQUIRED)
+  add_executable(RadField3D-Analytical
+    ${PROJECT_SOURCE_DIR}/targets/analytical/main.cpp
+    ${PROJECT_SOURCE_DIR}/targets/analytical/AnalyticalVoxelizer.cpp
+    ${PROJECT_SOURCE_DIR}/targets/analytical/AnalyticalTracer.cu
+    ${PROJECT_SOURCE_DIR}/src/GeometryLoader.cpp
+    ${PROJECT_SOURCE_DIR}/src/Geometry.cpp
+    ${PROJECT_SOURCE_DIR}/src/Collisions.cpp
+    ${PROJECT_SOURCE_DIR}/src/RadiationSource.cpp
+    ${PROJECT_SOURCE_DIR}/src/ProbabilityFunctions.cpp
+  )
+  target_include_directories(RadField3D-Analytical PRIVATE include)
+  target_link_libraries(RadField3D-Analytical glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D CUDA::cufft)
+  if(NOT MSVC)
+    target_link_libraries(RadField3D-Analytical stdc++fs)
+  endif()
+  set_target_properties(RadField3D-Analytical PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin"
+    CUDA_SEPARABLE_COMPILATION ON)
+  set_target_properties(RadField3D-Analytical PROPERTIES FOLDER "Targets")
+endif()
+
 if(UNIX)
   set(CPACK_PACKAGE_NAME "RadField3D")
   set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
