@@ -2,22 +2,24 @@
 
 
 using namespace RadiationSimulation;
+using namespace RadiationSimulation::Geometry;
+using namespace RadiationSimulation::Geant4;
 
-RadiationSimulation::G4World::G4World(std::shared_ptr<World> raw_world)
-	: World(),
+RadiationSimulation::Geant4::World::World(std::shared_ptr<RadiationSimulation::World> raw_world)
+	: RadiationSimulation::World(),
 	  raw_world(raw_world)
 {
 }
 
-void RadiationSimulation::G4World::initialize(std::shared_ptr<G4Box> box, std::shared_ptr<G4Material> material, std::shared_ptr<G4LogicalVolume> volume)
+void RadiationSimulation::Geant4::World::initialize(std::shared_ptr<G4Box> box, std::shared_ptr<G4Material> material, std::shared_ptr<G4LogicalVolume> volume)
 {
-	World::instance = std::make_shared<G4World>(World::instance);
-	static_cast<G4World*>(World::instance.get())->box = box;
-	static_cast<G4World*>(World::instance.get())->material = material;
-	static_cast<G4World*>(World::instance.get())->volume = volume;
+	RadiationSimulation::World::instance = std::make_shared<Geant4::World>(RadiationSimulation::World::instance);
+	static_cast<Geant4::World*>(RadiationSimulation::World::instance.get())->box = box;
+	static_cast<Geant4::World*>(RadiationSimulation::World::instance.get())->material = material;
+	static_cast<Geant4::World*>(RadiationSimulation::World::instance.get())->volume = volume;
 }
 
-std::shared_ptr<G4World> RadiationSimulation::G4World::Get()
+std::shared_ptr<Geant4::World> RadiationSimulation::Geant4::World::Get()
 {
-	return std::dynamic_pointer_cast<G4World>(World::Get());
+	return std::dynamic_pointer_cast<Geant4::World>(RadiationSimulation::World::Get());
 }

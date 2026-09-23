@@ -8,17 +8,19 @@
 
 namespace RadiationSimulation {
 	class RadiationSource;
+}
 
-	class G4RadiationSource : public G4VUserPrimaryGeneratorAction {
+namespace RadiationSimulation::Geant4 {
+	class RadiationSource : public G4VUserPrimaryGeneratorAction {
 	private:
 		G4ParticleGun particle_gun;
-		const std::shared_ptr<RadiationSource> source;
+		const std::shared_ptr<RadiationSimulation::RadiationSource> source;
 	public:
-		G4RadiationSource(std::shared_ptr<RadiationSource> source, int fluence_per_run = 1);
+		RadiationSource(std::shared_ptr<RadiationSimulation::RadiationSource> source, int fluence_per_run = 1);
 		void GeneratePrimaries(G4Event* evt);
 
-		virtual ~G4RadiationSource() {
-			G4cout << "G4RadiationSource destroyed" << G4endl;
+		virtual ~RadiationSource() {
+			G4cout << "RadiationSource destroyed" << G4endl;
 		}
 	};
 }

@@ -9,6 +9,7 @@
 #include <memory>
 
 using namespace RadiationSimulation;
+using namespace RadiationSimulation::Geant4;
 
 // G4UserSteppingAction (the detector's base) refuses construction unless a physics list is
 // registered with a run manager. Needs the Geant4 data environment (G4ENSDFSTATEDATA etc.).
@@ -35,7 +36,7 @@ namespace {
 TEST(NormalizedFieldCopy, WorksWithoutAngularFlux) {
 	// The periodic auto-save path: must not throw when no angular resolution was requested
 	// (the angular_flux layer does not exist then).
-	G4RadiationFieldDetector det(glm::vec3(0.4f), glm::vec3(0.02f), 32, 150000.0 / 32.0);
+	Geant4::RadiationFieldDetector det(glm::vec3(0.4f), glm::vec3(0.02f), 32, 150000.0 / 32.0);
 	std::shared_ptr<RadFiled3D::IRadiationField> copy;
 	ASSERT_NO_THROW(copy = det.get_normalized_field_copy());
 	auto cart = std::dynamic_pointer_cast<RadFiled3D::CartesianRadiationField>(copy);
@@ -51,7 +52,7 @@ TEST(NormalizedFieldCopy, WorksWithoutAngularFlux) {
 
 TEST(NormalizedFieldCopy, RepeatedCopiesDoNotCorruptTheSource) {
 	// Normalization must only touch the copy — a second call has to work identically.
-	G4RadiationFieldDetector det(glm::vec3(0.4f), glm::vec3(0.02f), 32, 150000.0 / 32.0);
+	Geant4::RadiationFieldDetector det(glm::vec3(0.4f), glm::vec3(0.02f), 32, 150000.0 / 32.0);
 	ASSERT_NO_THROW(det.get_normalized_field_copy());
 	ASSERT_NO_THROW(det.get_normalized_field_copy());
 }
@@ -60,7 +61,7 @@ TEST(FieldDimensions, VoxelCountsSurviveFloatTruncation) {
 	// 2.3f / 0.1f = 22.9999971 in float: without the epsilon guard in CartesianRadiationField
 	// this truncates to 22 voxels per axis. The user's production case 2.3 m / 0.02 m (= exactly
 	// 115.0f) is safe either way; this pins the guard for the ratios that are not.
-	G4RadiationFieldDetector det(glm::vec3(2.3f), glm::vec3(0.1f), 8, 150000.0 / 8.0);
+	Geant4::RadiationFieldDetector det(glm::vec3(2.3f), glm::vec3(0.1f), 8, 150000.0 / 8.0);
 	auto copy = std::dynamic_pointer_cast<RadFiled3D::CartesianRadiationField>(det.get_normalized_field_copy());
 	ASSERT_NE(copy, nullptr);
 	EXPECT_EQ(copy->get_voxel_counts().x, 23u);
@@ -81,7 +82,7 @@ TEST(DetectorMemory, FootprintWithinLayerBudget) {
 	const size_t budget = 3 * n * layer_bytes_per_voxel;
 
 	struct mallinfo2 before = mallinfo2();
-	auto det = std::make_unique<G4RadiationFieldDetector>(glm::vec3(0.96f), glm::vec3(0.02f), 32, 150000.0 / 32.0);
+	auto det = std::make_unique<Geant4::RadiationFieldDetector>(glm::vec3(0.96f), glm::vec3(0.02f), 32, 150000.0 / 32.0);
 	struct mallinfo2 after = mallinfo2();
 
 	const size_t growth = after.uordblks - before.uordblks;

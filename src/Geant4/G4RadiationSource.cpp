@@ -6,9 +6,10 @@
 #include <G4Event.hh>
 
 using namespace RadiationSimulation;
+using namespace RadiationSimulation::Geant4;
 
 
-G4RadiationSource::G4RadiationSource(std::shared_ptr<RadiationSource> source, int fluence_per_run)
+Geant4::RadiationSource::RadiationSource(std::shared_ptr<RadiationSimulation::RadiationSource> source, int fluence_per_run)
 	: source(source),
 	  particle_gun(fluence_per_run)
 {
@@ -19,7 +20,7 @@ G4RadiationSource::G4RadiationSource(std::shared_ptr<RadiationSource> source, in
 	this->particle_gun.SetParticleDefinition(particle);
 }
 
-void G4RadiationSource::GeneratePrimaries(G4Event* evt)
+void Geant4::RadiationSource::GeneratePrimaries(G4Event* evt)
 {
 	this->particle_gun.SetParticlePosition(G4ThreeVector(source->getLocation().x * m, source->getLocation().y * m, source->getLocation().z * m));
 	glm::vec3 direction = this->source->drawRayDirection();

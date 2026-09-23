@@ -3,6 +3,7 @@
 #include "Geometry.hpp"
 
 using namespace RadiationSimulation;
+using namespace RadiationSimulation::Geometry;
 
 std::shared_ptr<World>		World::instance = std::shared_ptr<World>(NULL);
 std::unique_ptr<WorldInfo>	World::world_info = std::unique_ptr<WorldInfo>();

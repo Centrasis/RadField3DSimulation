@@ -15,11 +15,13 @@
 
 
 using namespace RadiationSimulation;
+using namespace RadiationSimulation::Geometry;
+using namespace RadiationSimulation::Geant4;
 
 
 G4NistManager* MaterialSolver::nist_man = NULL;
 
-void RadiationSimulation::G4SceneConstructor::place_mesh(std::shared_ptr<G4Mesh> mesh, G4LogicalVolume* parent)
+void RadiationSimulation::Geant4::SceneConstructor::place_mesh(std::shared_ptr<Geant4::Mesh> mesh, G4LogicalVolume* parent)
 {
 	auto m_name = mesh->getMesh()->getMaterialName();
 	if (m_name.size() > 0)
@@ -33,29 +35,29 @@ void RadiationSimulation::G4SceneConstructor::place_mesh(std::shared_ptr<G4Mesh>
 	}
 }
 
-G4SceneConstructor::G4SceneConstructor(const std::vector<std::shared_ptr<Mesh>>& meshes)
+Geant4::SceneConstructor::SceneConstructor(const std::vector<std::shared_ptr<Geometry::Mesh>>& meshes)
 	: G4VUserDetectorConstruction()
 {
 	this->world_dim = G4ThreeVector(0, 0, 0);
 	for (auto& m : meshes) {
-		// NON-OWNING: G4Mesh is a G4TessellatedSolid, owned by G4SolidStore — see the note in ::Construct.
+		// NON-OWNING: Geant4::Mesh is a G4TessellatedSolid, owned by G4SolidStore — see the note in ::Construct.
 		this->g4meshes.push_back(
-			std::shared_ptr<G4Mesh>(new G4Mesh(m, length_unit_in_meshes), [](G4Mesh*) {})
+			std::shared_ptr<Geant4::Mesh>(new Geant4::Mesh(m, length_unit_in_meshes), [](Geant4::Mesh*) {})
 		);
 	}
 
-	World::Get()->set_geometries(meshes);
+	RadiationSimulation::World::Get()->set_geometries(meshes);
 }
 
-G4VPhysicalVolume* G4SceneConstructor::Construct()
+G4VPhysicalVolume* Geant4::SceneConstructor::Construct()
 {
-	//auto world_info = World::get_world_info();
+	//auto world_info = RadiationSimulation::World::get_world_info();
 
-	// Size the world so it at least matches the configured field (World::dimensions) but grows to enclose
+	// Size the world so it at least matches the configured field (RadiationSimulation::World::dimensions) but grows to enclose
 	// the geometry and the source when either exceeds it: the geometry may be larger than the scored field
 	// and the source can sit outside it, yet every primary vertex and all geometry must lie inside the
 	// world. A snug fit also avoids tracking through an oversized air volume.
-	this->world_dim = G4ThreeVector(World::get_world_info()->dimensions.x * m, World::get_world_info()->dimensions.y * m, World::get_world_info()->dimensions.z * m);
+	this->world_dim = G4ThreeVector(RadiationSimulation::World::get_world_info()->dimensions.x * m, RadiationSimulation::World::get_world_info()->dimensions.y * m, RadiationSimulation::World::get_world_info()->dimensions.z * m);
 
 	// Start from the configured field size (WorldDim is the full extent, so its half is the floor). The
 	// geometry and source reaches carry a small margin so neither sits exactly on the world boundary, but
@@ -63,8 +65,8 @@ G4VPhysicalVolume* G4SceneConstructor::Construct()
 	glm::vec3 half_extent = glm::vec3(this->world_dim.x(), this->world_dim.y(), this->world_dim.z()) / 2.f;
 
 	const float margin = 1.05f;
-	std::function<void(const std::shared_ptr<G4Mesh>&, const glm::vec3&)> grow_to_mesh =
-		[&](const std::shared_ptr<G4Mesh>& gm, const glm::vec3& parent_pos) {
+	std::function<void(const std::shared_ptr<Geant4::Mesh>&, const glm::vec3&)> grow_to_mesh =
+		[&](const std::shared_ptr<Geant4::Mesh>& gm, const glm::vec3& parent_pos) {
 			const glm::vec3 pos = parent_pos + gm->getMesh()->getPosition();   // world position, G4 units
 			const auto& bb = gm->getBoundingBox();                             // local AABB, G4 units
 			half_extent = glm::max(half_extent, margin * glm::abs(pos + bb.first));
@@ -75,8 +77,8 @@ G4VPhysicalVolume* G4SceneConstructor::Construct()
 	for (const auto& gm : this->g4meshes)
 		grow_to_mesh(gm, glm::vec3(0.f));
 
-	if (World::Get()->get_radiation_source() != nullptr) {
-		const glm::vec3 source_pos = World::Get()->get_radiation_source()->getLocation() * static_cast<float>(m);
+	if (RadiationSimulation::World::Get()->get_radiation_source() != nullptr) {
+		const glm::vec3 source_pos = RadiationSimulation::World::Get()->get_radiation_source()->getLocation() * static_cast<float>(m);
 		half_extent = glm::max(half_extent, margin * glm::abs(source_pos));
 	}
 
@@ -88,14 +90,14 @@ G4VPhysicalVolume* G4SceneConstructor::Construct()
 	       << world_dim.x() / m << " x " << world_dim.y() / m << " x " << world_dim.z() / m << " m)" << G4endl;
 
 	G4Box* worldBox = new G4Box("World", this->max_world_extend.x / 2.0, this->max_world_extend.y / 2.0, this->max_world_extend.z / 2.0);
-	this->world_material = MaterialSolver::get_material(World::get_world_info()->material);
+	this->world_material = MaterialSolver::get_material(RadiationSimulation::World::get_world_info()->material);
 	if (this->world_material == NULL)
 		throw std::runtime_error("World Material could not be loaded!");
 
 	G4LogicalVolume* worldLog = new G4LogicalVolume(worldBox, world_material, "World");
 	// Geometry is placed directly in the (large) world, not in a box the size of the scored field. Flux is
 	// scored per step from the voxel position (bounds-checked in the detector), so the recorded field
-	// (World::dimensions) may be SMALLER than the geometry: the mesh simply extends beyond the field into
+	// (RadiationSimulation::World::dimensions) may be SMALLER than the geometry: the mesh simply extends beyond the field into
 	// the surrounding world. A physical tracker box the size of the field would instead force the field to
 	// enclose the whole mesh (the mesh would otherwise protrude its mother volume).
 	G4VPhysicalVolume* worldPhys = new G4PVPlacement(
@@ -110,7 +112,7 @@ G4VPhysicalVolume* G4SceneConstructor::Construct()
 
 	// Geant4's stores own all geometry (G4SolidStore / G4LogicalVolumeStore / the material table delete these
 	// at teardown). Hold them as NON-OWNING shared_ptr (no-op deleter) so only Geant4 deletes them.
-	G4World::initialize(
+	Geant4::World::initialize(
 		std::shared_ptr<G4Box>(worldBox, [](G4Box*) {}),
 		std::shared_ptr<G4Material>(world_material, [](G4Material*) {}),
 		std::shared_ptr<G4LogicalVolume>(worldLog, [](G4LogicalVolume*) {})
@@ -120,21 +122,21 @@ G4VPhysicalVolume* G4SceneConstructor::Construct()
 		this->place_mesh(m, worldLog);
 	}
 
-	if (World::Get()->get_radiation_field_detector()) {
-		World::Get()->get_radiation_field_detector()->SetUp();
+	if (RadiationSimulation::World::Get()->get_radiation_field_detector()) {
+		RadiationSimulation::World::Get()->get_radiation_field_detector()->SetUp();
 	}
 
 	return worldPhys;
 }
 
-void G4SceneConstructor::ConstructSDandField()
+void Geant4::SceneConstructor::ConstructSDandField()
 {
 	
 }
 
-std::map<G4String, G4Material*> RadiationSimulation::MaterialSolver::custom_materials;
+std::map<G4String, G4Material*> RadiationSimulation::Geant4::MaterialSolver::custom_materials;
 
-void RadiationSimulation::MaterialSolver::init_custom_materials()
+void RadiationSimulation::Geant4::MaterialSolver::init_custom_materials()
 {
 	G4Element* H = MaterialSolver::nist_man->FindOrBuildElement("H");
 	G4Element* C = MaterialSolver::nist_man->FindOrBuildElement("C");

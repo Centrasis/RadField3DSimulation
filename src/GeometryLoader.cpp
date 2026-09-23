@@ -17,10 +17,13 @@ namespace fs = std::experimental::filesystem;
 
 using json = nlohmann::json;
 using namespace RadiationSimulation;
+using namespace RadiationSimulation::Geometry;
 
 
-void SetupMesh(json& mesh_desc, std::shared_ptr<Mesh> mesh, const std::map<std::string, std::shared_ptr<Mesh>>& all_meshes) {
-    bool has_a_patient = false;
+// Applies a mesh description to `mesh` and its children. A mesh without its own Type takes the type of its parent
+// (`parent_type`, empty for root meshes, which then keep Mesh::DEFAULT_TYPE). `declared_patients` counts the meshes that
+// declare the patient type themselves.
+void SetupMesh(json& mesh_desc, std::shared_ptr<Mesh> mesh, const std::map<std::string, std::shared_ptr<Mesh>>& all_meshes, const std::string& parent_type, size_t& declared_patients) {
     if (mesh_desc.find("Transform") != mesh_desc.end()) {
         auto& transform_info = mesh_desc["Transform"];
         if (transform_info.find("Rotation") != transform_info.end()) {
@@ -46,14 +49,23 @@ void SetupMesh(json& mesh_desc, std::shared_ptr<Mesh> mesh, const std::map<std::
         }
     }
 
-    if (mesh_desc.find("Patient") != mesh_desc.end()) {
-        bool is_patient = mesh_desc["Patient"].get<bool>();
-        if (is_patient && has_a_patient)
-            throw std::runtime_error("A patient mesh was already defined! There cannot be more than one patient!");
-        if (is_patient) {
-            mesh->markAsPatient();
-            has_a_patient = true;
+    if (mesh_desc.find("Type") != mesh_desc.end()) {
+        try {
+            mesh->setType(mesh_desc["Type"].get<std::string>());
         }
+        catch (const std::invalid_argument& e) {
+            throw std::runtime_error("Invalid Type of mesh \"" + mesh->getName() + "\": " + e.what());
+        }
+        if (mesh->isPatient())
+            declared_patients++;
+    }
+    // legacy descriptions flag the patient with a boolean instead of a Type
+    else if (mesh_desc.find("Patient") != mesh_desc.end() && mesh_desc["Patient"].get<bool>()) {
+        mesh->setType(Mesh::PATIENT_TYPE);
+        declared_patients++;
+    }
+    else if (!parent_type.empty()) {
+        mesh->setType(parent_type);
     }
 
     if (mesh_desc.find("MaterialName") != mesh_desc.end()) {
@@ -65,7 +77,7 @@ void SetupMesh(json& mesh_desc, std::shared_ptr<Mesh> mesh, const std::map<std::
         auto& children = mesh_desc["Children"];
         for (auto& [child_name, child] : children.items()) {
             std::shared_ptr<Mesh> child_mesh = all_meshes.find(child_name)->second;
-            SetupMesh(child, child_mesh, all_meshes);
+            SetupMesh(child, child_mesh, all_meshes, mesh->getType(), declared_patients);
             mesh->addChild(child_mesh);
         }
     }
@@ -132,6 +144,7 @@ std::vector<std::shared_ptr<Mesh>> GeometryLoader::Load(const std::string& path,
         json data;
         desc_file >> data;
 
+        size_t declared_patients = 0;
         for (auto& [name, m_data] : data.items()) {
             if (meshes.find(name) == meshes.end()) {
                 std::cout << "Meshes were:" << std::endl;
@@ -142,8 +155,11 @@ std::vector<std::shared_ptr<Mesh>> GeometryLoader::Load(const std::string& path,
             }
             std::shared_ptr<Mesh> mesh = meshes.find(name)->second;
             root_meshes.push_back(mesh);
-            SetupMesh(m_data, mesh, meshes);
+            SetupMesh(m_data, mesh, meshes, "", declared_patients);
         }
+
+        if (declared_patients > 1)
+            throw std::runtime_error("More than one mesh declares the Type \"" + std::string(Mesh::PATIENT_TYPE) + "\"! There cannot be more than one patient!");
     } else {
         for (auto& [name, m] : meshes) {
 			root_meshes.push_back(m);

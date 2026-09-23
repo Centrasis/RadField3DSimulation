@@ -5,15 +5,15 @@
 
 using namespace RadiationSimulation;
 
-std::shared_ptr<G4RadiationSimulationHandler> RadiationSimulator::handler;
+std::shared_ptr<Geant4::RadiationSimulationHandler> RadiationSimulator::handler;
 bool RadiationSimulator::bIsBusy = false;
 
 
-std::shared_ptr<G4RadiationSimulationHandler> RadiationSimulator::initialize(const int cpu_count)
+std::shared_ptr<Geant4::RadiationSimulationHandler> RadiationSimulator::initialize(const int cpu_count)
 {
 	World::instance = std::make_shared<World>();
 	World::world_info = std::make_unique<WorldInfo>("Air", glm::vec3(1.f));
-	RadiationSimulator::handler = std::make_shared<G4RadiationSimulationHandler>(cpu_count);
+	RadiationSimulator::handler = std::make_shared<Geant4::RadiationSimulationHandler>(cpu_count);
 	if (!RadiationSimulator::handler->initialize())
 		throw std::runtime_error("Handler initialization failed!");
 	return RadiationSimulator::handler;
@@ -45,15 +45,15 @@ void RadiationSimulation::RadiationSimulator::display_gui()
 	RadiationSimulator::handler->display_gui();
 }
 
-void RadiationSimulation::RadiationSimulator::add_geometry(const std::vector<std::shared_ptr<Mesh>>& meshes)
+void RadiationSimulation::RadiationSimulator::add_geometry(const std::vector<std::shared_ptr<Geometry::Mesh>>& meshes)
 {
 	RadiationSimulator::handler->add_geometry(meshes);
 	World::Get()->set_geometries(meshes);
 }
 
-void RadiationSimulation::RadiationSimulator::add_geometry(std::shared_ptr<Mesh> mesh)
+void RadiationSimulation::RadiationSimulator::add_geometry(std::shared_ptr<Geometry::Mesh> mesh)
 {
-	RadiationSimulator::add_geometry(std::vector<std::shared_ptr<Mesh>>({ mesh }));
+	RadiationSimulator::add_geometry(std::vector<std::shared_ptr<Geometry::Mesh>>({ mesh }));
 }
 
 void RadiationSimulation::RadiationSimulator::add_radiation_source(std::shared_ptr<RadiationSource> source)

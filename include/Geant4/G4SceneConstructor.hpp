@@ -10,21 +10,21 @@
 class G4NistManager;
 class G4Material;
 
-namespace RadiationSimulation {
-	class G4SceneConstructor : public G4VUserDetectorConstruction
+namespace RadiationSimulation::Geant4 {
+	class SceneConstructor : public G4VUserDetectorConstruction
 	{
 	protected:
-		std::vector<std::shared_ptr<G4Mesh>> g4meshes;
+		std::vector<std::shared_ptr<Mesh>> g4meshes;
 		double length_unit_in_meshes = m;
 		double max_step_width = 1e-7 * mm;
 		glm::vec3 max_world_extend = glm::vec3(1e+3 * m);
 		G4Material* world_material = NULL;
 		G4ThreeVector world_dim;
-		void place_mesh(std::shared_ptr<G4Mesh> mesh, G4LogicalVolume* parent);
+		void place_mesh(std::shared_ptr<Mesh> mesh, G4LogicalVolume* parent);
 	public:
-		G4SceneConstructor(const std::vector<std::shared_ptr<Mesh>>& meshes);
-		virtual ~G4SceneConstructor() {
-			G4cout << "G4SceneConstructor destroyed" << G4endl;
+		SceneConstructor(const std::vector<std::shared_ptr<Geometry::Mesh>>& meshes);
+		virtual ~SceneConstructor() {
+			G4cout << "SceneConstructor destroyed" << G4endl;
 		}
 		G4VPhysicalVolume* Construct();
 		virtual void ConstructSDandField() override;

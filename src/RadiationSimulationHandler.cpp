@@ -22,8 +22,10 @@
 
 
 using namespace RadiationSimulation;
+using namespace RadiationSimulation::Geometry;
+using namespace RadiationSimulation::Geant4;
 
-RadiationSimulation::G4RadiationSimulationHandler::G4RadiationSimulationHandler(const int cpu_count)
+RadiationSimulation::Geant4::RadiationSimulationHandler::RadiationSimulationHandler(const int cpu_count)
 	: cpu_count(cpu_count),
 	  physics(nullptr),
 	  run_mgr_initialized(false),
@@ -32,7 +34,7 @@ RadiationSimulation::G4RadiationSimulationHandler::G4RadiationSimulationHandler(
 {
 }
 
-bool G4RadiationSimulationHandler::initialize()
+bool Geant4::RadiationSimulationHandler::initialize()
 {
 	CLHEP::HepRandom::setTheEngine(&this->random_generator);
 	G4SteppingVerbose::UseBestUnit(4);
@@ -53,14 +55,14 @@ bool G4RadiationSimulationHandler::initialize()
 	return true;
 }
 
-void RadiationSimulation::G4RadiationSimulationHandler::finalize()
+void RadiationSimulation::Geant4::RadiationSimulationHandler::finalize()
 {
 	if (this->meshes.size() > 0) {
 		if (this->run_mgr_initialized) {
 			//this->G4mgr->ReinitializeGeometry();
 		}
 		else {
-			const glm::vec3 source_position = World::Get()->get_radiation_source()->getLocation();
+			const glm::vec3 source_position = RadiationSimulation::World::Get()->get_radiation_source()->getLocation();
 			const float source_center_distance = glm::length(source_position);
 			const glm::vec3 source_dir = glm::normalize(-source_position);  // Note: negative because source points towards center
 			
@@ -98,15 +100,15 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 				}
 			}
 
-			this->G4mgr->SetUserInitialization(new G4SceneConstructor(this->meshes));
+			this->G4mgr->SetUserInitialization(new Geant4::SceneConstructor(this->meshes));
 		}
 	}
 
-	if (World::Get()->get_radiation_field_detector().get() == NULL) {
+	if (RadiationSimulation::World::Get()->get_radiation_field_detector().get() == NULL) {
 		// The app is the sole owner of the detector, which is shared across MT workers as one field. Geant4
-		// owns only the per-worker G4RadiationFieldSteppingAction forwarders that route steps into it (see
-		// G4RadiationFieldAction::Build).
-		auto rad_det = std::make_shared<G4RadiationFieldDetector>(
+		// owns only the per-worker Geant4::RadiationFieldSteppingAction forwarders that route steps into it (see
+		// Geant4::RadiationFieldAction::Build).
+		auto rad_det = std::make_shared<Geant4::RadiationFieldDetector>(
 			this->radiation_field_resolution.radiation_field_dimensions,
 			this->radiation_field_resolution.radiation_field_voxel_dimensions,
 			// round, don't truncate: 0.12f/0.001f = 119.999992 in float would yield 119 bins for 120 keV / 1 keV
@@ -125,14 +127,14 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 				}
 			}
 		});
-		World::Get()->set_radiation_field_detector(
+		RadiationSimulation::World::Get()->set_radiation_field_detector(
 			rad_det
 		);
 
 		this->G4mgr->SetUserInitialization(
-			new G4RadiationFieldAction(
+			new Geant4::RadiationFieldAction(
 				rad_det,
-				World::Get()->get_radiation_source()   // physics source; each worker builds its OWN gun in Build()
+				RadiationSimulation::World::Get()->get_radiation_source()   // physics source; each worker builds its OWN gun in Build()
 			)
 		);
 	}
@@ -150,10 +152,10 @@ void RadiationSimulation::G4RadiationSimulationHandler::finalize()
 			std::cout << (*processes)[i]->GetProcessName() << std::endl;
 	}
 
-	this->field_detector = World::Get()->get_radiation_field_detector();
+	this->field_detector = RadiationSimulation::World::Get()->get_radiation_field_detector();
 }
 
-void RadiationSimulation::G4RadiationSimulationHandler::display_gui()
+void RadiationSimulation::Geant4::RadiationSimulationHandler::display_gui()
 {
 #ifdef WITH_GEANT4_UIVIS
 	G4cout << "Displaying GUI..." << G4endl;
@@ -193,7 +195,7 @@ void RadiationSimulation::G4RadiationSimulationHandler::display_gui()
 #endif
 }
 
-void RadiationSimulation::G4RadiationSimulationHandler::update_gui()
+void RadiationSimulation::Geant4::RadiationSimulationHandler::update_gui()
 {
 #ifdef WITH_GEANT4_UIVIS
 	if (has_ui) {
@@ -203,13 +205,13 @@ void RadiationSimulation::G4RadiationSimulationHandler::update_gui()
 #endif
 }
 
-void RadiationSimulation::G4RadiationSimulationHandler::add_geometry(const std::vector<std::shared_ptr<Mesh>>& meshes)
+void RadiationSimulation::Geant4::RadiationSimulationHandler::add_geometry(const std::vector<std::shared_ptr<Geometry::Mesh>>& meshes)
 {
 	for (auto& m : meshes)
 		this->meshes.push_back(m);
 }
 
-std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::G4RadiationSimulationHandler::simulate_radiation_field(size_t n_particles, RadFiled3D::GridTracerAlgorithm tracing_algorithm)
+std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::Geant4::RadiationSimulationHandler::simulate_radiation_field(size_t n_particles, RadFiled3D::GridTracerAlgorithm tracing_algorithm)
 {
 	G4cout << "Particles to calculate: " << n_particles << G4endl;
 	if (this->field_detector) {
@@ -225,14 +227,22 @@ std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::G4RadiationSim
 			break;
 		}
 		this->field_detector->finalize(n_particles);
+
+		// Voxelized before the run, so that every stored field (auto-saves included) carries the geometry and a
+		// failing voxelization cannot discard simulated particles.
+		const std::shared_ptr<Geant4::World> world = Geant4::World::Get();
+		if (!this->geometry_voxelized && world && world->get_volume()) {
+			this->field_detector->voxelize_geometry(*world->get_volume(), this->cpu_count);
+			this->geometry_voxelized = true;
+		}
 	}
 	this->G4mgr->BeamOn(n_particles);
 	this->update_gui();
 
-	return (World::Get()->get_radiation_field_detector()) ? World::Get()->get_radiation_field_detector()->evaluate() : std::shared_ptr<RadFiled3D::IRadiationField>(NULL);
+	return (RadiationSimulation::World::Get()->get_radiation_field_detector()) ? RadiationSimulation::World::Get()->get_radiation_field_detector()->evaluate() : std::shared_ptr<RadFiled3D::IRadiationField>(NULL);
 }
 
-void G4RadiationSimulationHandler::deinitialize()
+void Geant4::RadiationSimulationHandler::deinitialize()
 {
 #ifdef WITH_GEANT4_UIVIS
 	this->G4VisManager.reset();
@@ -241,12 +251,12 @@ void G4RadiationSimulationHandler::deinitialize()
 	this->G4mgr.reset();
 }
 
-void RadiationSimulation::G4RadiationSimulationHandler::add_callback_every_n_particles(std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)> callback, size_t n_particles)
+void RadiationSimulation::Geant4::RadiationSimulationHandler::add_callback_every_n_particles(std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)> callback, size_t n_particles)
 {
 	callbacks.push_back({ n_particles, callback });
 }
 
-void RadiationSimulation::G4RadiationSimulationHandler::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, glm::uvec2 angular_resolution)
+void RadiationSimulation::Geant4::RadiationSimulationHandler::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, glm::uvec2 angular_resolution)
 {
 	this->radiation_field_resolution.radiation_field_dimensions = radiation_field_dimensions;
 	this->radiation_field_resolution.radiation_field_voxel_dimensions = radiation_field_voxel_dimensions;

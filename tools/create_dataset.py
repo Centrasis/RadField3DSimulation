@@ -5,16 +5,13 @@ import random
 from typing import List, Union, Any
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from rich import print
-from RadFiled3D.RadFiled3D import CartesianRadiationField, FieldStore, DType, vec3
-import numpy as np
 import argparse
 import torch
 import json
 import shutil
-from typing import NamedTuple, cast
+from typing import NamedTuple
 import datetime
 import platform
-from helpers.voxelization import VoxelizationHelper
 from helpers import join_rf3_file, add_patient_translation
 import uuid
 from copy import deepcopy
@@ -419,7 +416,8 @@ class GeometrySampler(object):
 def read_patient_translation_from_desc(desc_path: str):
     """Return the patient object's (X, Y, Z) translation from a geometry description file, or None.
 
-    Recursively searches for the object flagged as the patient ("Patient": true) and reads its
+    Recursively searches for the object of Type "patient" (matched case-insensitively, like the simulation does;
+    in legacy descriptions without a Type, the object flagged with "Patient": true) and reads its
     Transform.Translation. Missing axes default to 0.
     """
     with open(desc_path, "r") as f:
@@ -429,7 +427,7 @@ def read_patient_translation_from_desc(desc_path: str):
         for obj in objects.values():
             if not isinstance(obj, dict):
                 continue
-            if obj.get("Patient") is True:
+            if str(obj.get("Type", "patient" if obj.get("Patient") is True else "")).lower() == "patient":
                 return obj
             children = obj.get("Children")
             if isinstance(children, dict):
@@ -469,28 +467,6 @@ def write_spectrum_file(src_file: str, out_path: str):
         f.write(f"Energy[eV]    Fluence[]")
         for i in range(len(energies)):
             f.write(f"\n{energies[i] * 1000}    {fluence[i]}")
-
-
-def write_voxelized_geometry_to_field(voxel_grid: np.ndarray, field: CartesianRadiationField, file_name: str):
-    if not voxel_grid.any():
-        LOGGER.warning(f"No geometry found for file {file_name}! This maybe an error.")
-
-    if not field.has_channel("geometry"):
-        geom_channel = field.add_channel("geometry")
-    else:
-        geom_channel = field.get_channel("geometry")
-
-    if "density" not in geom_channel.get_layers():
-        geom_channel.add_layer("density", "Density", DType.BYTE)
-
-    density_layer = geom_channel.get_layer_as_ndarray("density")
-    density_layer[:, :, :] = 0
-    density_layer[voxel_grid] = 127
-    FieldStore.store(
-        field,
-        FieldStore.load_metadata(file_name),
-        file_name
-    )
 
 
 if __name__ == "__main__":
@@ -938,24 +914,6 @@ if __name__ == "__main__":
             if not cluster_should_generate_batch:
                 if os.path.exists(out_path):
                     LOGGER.info(f"Field was written to -> [green]{out_path}[/]")
-
-                    field = cast(CartesianRadiationField, FieldStore.load(out_path))
-                    LOGGER.debug(f"Loaded field from {out_path} for voxelization...")
-                    if field is not None and geometry_file != '':
-                        if not os.path.exists(geometry_file):
-                            LOGGER.warning(f"Geometry file {geometry_file} does not exist! Skipping voxelization.")
-                            continue
-                        voxels = field.get_voxel_counts()
-                        voxel_grid = VoxelizationHelper.generate_voxelgrid_with_geometry(
-                            geom_file=geometry_file,
-                            voxel_size=voxel_size,
-                            grid_size=(int(voxels.x), int(voxels.y), int(voxels.z)),
-                            description_file=geometry_desc_file if geometry_desc_file is not None and os.path.exists(geometry_desc_file) else None,
-                            logger=LOGGER,
-                        )
-                        write_voxelized_geometry_to_field(voxel_grid, field, out_path)
-                    else:
-                        LOGGER.warning(f"No field or geometry file provided for voxelization. Skipping voxelization.")
 
                     if patient_translation_enabled and geometry_desc_file is not None and os.path.exists(geometry_desc_file):
                         translation = read_patient_translation_from_desc(geometry_desc_file)

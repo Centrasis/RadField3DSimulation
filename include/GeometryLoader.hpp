@@ -14,6 +14,6 @@ namespace RadiationSimulation {
 		 * @return A vector of shared pointers to Mesh objects.
 		 * @throws std::runtime_error if the file cannot be loaded or if there are issues with the mesh descriptions.
 		 */
-		static std::vector<std::shared_ptr<Mesh>> Load(const std::string& path, std::string description_file = "");
+		static std::vector<std::shared_ptr<Geometry::Mesh>> Load(const std::string& path, std::string description_file = "");
 	};
 }

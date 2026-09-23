@@ -28,7 +28,7 @@ You can build and install this application from source by using CMake and a C++ 
 - C++20 Compiler
   - g++ or clang for Linux
   - MSVC or clang from Visual Studio 2022 for Windows
-- CMake >= 3.16
+- CMake >= 3.24
 - Python >= 3.10
 - Geant4 >= 11.0 (validated on 11.0.0), including its data packages (see [Running](#running))
 - Optional:
@@ -41,6 +41,12 @@ Just execute CMake on the CMakeLists.txt from the root of the project and set th
 CMake locates Geant4 via `find_package(Geant4)`; if it is not on the default search path, point CMake at your
 install with `-DGeant4_DIR=<geant4>/lib/cmake/Geant4` (and `-DCLHEP_DIR=<clhep>/lib/CLHEP-<ver>` if CLHEP is
 external). Only the OBJ and STL assimp importers are built (the only geometry formats used).
+
+All other dependencies are fetched and built automatically on the first configure (network access required): Eigen,
+Assimp, nlohmann/json, GoogleTest (tests only) and, for voxelizing the geometry, [OpenVDB](https://www.openvdb.org)
+(core library only, CPU-only, Apache-2.0) with [oneTBB](https://github.com/uxlfoundation/oneTBB) (Apache-2.0). An
+already installed oneTBB (`TBBConfig.cmake`) or OpenVDB (`FindOpenVDB.cmake` on `CMAKE_MODULE_PATH`) is used instead
+of fetching it. Both are linked statically, so the built binary needs no extra runtime libraries.
 
 ```bash
 cmake -S . -B build            # add -DGeant4_DIR=... if Geant4 is not auto-found
@@ -99,7 +105,7 @@ Example:
 {
     "mesh_name": {
         "MaterialName": "G4_TISSUE_SOFT_ICRU",
-        "Patient": true, // can only be true for one mesh
+        "Type": "Patient", // free text; "Patient" may be used by one mesh only
         "Transform": {
             "Rotation": {
                 "X": 0,
@@ -119,7 +125,7 @@ Example:
         }
         "Children": {
             "child_name_name": {
-                "Patient": false,
+                "Type": "Organ",
                 "MaterialName": "G4_LUNG_ICRP",
                 "Transform": {
                     "Rotation": {
@@ -145,8 +151,14 @@ Example:
 ```
 With `mesh_name` and `child_name_name` name being the name of the mesh as exported by the geometry file. MaterialName can be one of the Geant4 Materials, but it is more error prune as `Water` will be corrected to `G4_WATER`, if the prior was not a valid material.
 
+`Type` is a freely assignable category of the mesh, e.g. `"Patient"`, `"Shield"` or `"Table"`. Types are matched case-insensitively and stored in lower case (`"Shield"` and `"SHIELD"` are the same type `shield`) and may have at most 63 characters. A mesh without a `Type` takes the type of its parent (recursively), a root mesh without one is of type `unknown`; a child with its own `Type` is a separate type. At most one mesh may declare the type `patient`; its translation is what the DatasetGenerator records as the patient translation. Descriptions using the former boolean `"Patient": true` are still read as `"Type": "Patient"` (`"Patient": false` declares no type).
+
+#### Voxelized geometry
+Before the simulation starts, RadField3D voxelizes the placed geometry onto the grid of the radiation field and stores it as the channel `geometry` of the `.rf3` file. Every mesh type gets its own 8-bit layer named like the (lower-case) type, e.g. `patient`, holding `255` where a voxel overlaps any mesh of that type and `0` elsewhere; all meshes of one type share their layer. A voxel counts as overlapping when a part of it with non-zero volume lies inside the mesh, so meshes thinner than a voxel (e.g. shields) are still marked. Meshes must be closed up to gaps smaller than a voxel.
+The geometry is written once when the file is created; later saves (auto-saves or `--append` runs) only update the radiation channels and the metadata and keep the stored geometry.
+
 ### Using the DatasetGenerator
-After installing the needed pyTorch (CPU or CUDA version doesn't matter) and other required modules (from `requirements.txt`), one can call the DatasetGenerator from `./tools/create_dataset.py`. Using the generator allows to automatically embed the used geometry in the form of a binary mask into the created rf3-files.
+After installing the needed pyTorch (CPU or CUDA version doesn't matter) and other required modules (from `requirements.txt`), one can call the DatasetGenerator from `./tools/create_dataset.py`. The fields it creates carry the voxelized geometry written by RadField3D (see [Voxelized geometry](#voxelized-geometry)).
 The arguments of the generator are working similar like the direct RadField3D parameters, but slightly extended.
 
 Parameters:

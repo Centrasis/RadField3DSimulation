@@ -28,8 +28,10 @@ class G4VisExecutive;
 class G4LogicalVolume;
 
 namespace RadiationSimulation {
-	class Mesh;
-	class G4RadiationSource;
+	class RadiationSource;
+}
+
+namespace RadiationSimulation::Geant4 {
 	class RadiationSource;
 
 	enum class TrackStage : char {
@@ -40,9 +42,9 @@ namespace RadiationSimulation {
 
 	// A single app-owned object shared across all MT workers: one accumulated field, guarded by striped
 	// per-voxel locks. It is a G4UserSteppingAction but is not registered with Geant4 directly (a per-worker
-	// G4RadiationFieldSteppingAction forwarder is registered instead and calls UserSteppingAction() on it), so
+	// RadiationFieldSteppingAction forwarder is registered instead and calls UserSteppingAction() on it), so
 	// Geant4 owns the per-worker forwarders while the app remains the sole owner of this shared detector.
-	class G4RadiationFieldDetector: public G4UserSteppingAction {
+	class RadiationFieldDetector: public G4UserSteppingAction {
 	protected:
 		// The accumulated scoring field and its spectrum layout. Declared first so it is constructed before
 		// `buffers`, whose initializer calls field->add_channel(...).
@@ -225,8 +227,10 @@ namespace RadiationSimulation {
 		void evaluate_field();
 		std::shared_ptr<RadFiled3D::GridTracer> tracer;
 		std::vector< std::function<void(size_t, const G4Step*)>> new_particle_callbacks;
+		// Voxelized scene geometry on the scoring grid, computed once per run.
+		std::shared_ptr<RadFiled3D::CartesianRadiationField> geometry;
 	public:
-		G4RadiationFieldDetector(
+		RadiationFieldDetector(
 			const glm::vec3& radiation_field_dimensions,
 			const glm::vec3& radiation_field_voxel_dimensions,
 			size_t spectra_bins,
@@ -236,8 +240,8 @@ namespace RadiationSimulation {
 			float statistical_error_enforcement_resolution = 0.5f,
 			const glm::uvec2& angular_resolution = glm::uvec2(0)
 		);
-		virtual ~G4RadiationFieldDetector() {
-			G4cout << "G4RadiationFieldDetector destroyed" << G4endl;
+		virtual ~RadiationFieldDetector() {
+			G4cout << "RadiationFieldDetector destroyed" << G4endl;
 		}
 		void SetUp();
 		virtual void finalize(size_t particle_count);
@@ -257,6 +261,12 @@ namespace RadiationSimulation {
 		// Scores one step into the field; invoked for every step by the per-worker forwarder.
 		virtual void UserSteppingAction(const G4Step* step) override;
 		std::shared_ptr<RadFiled3D::IRadiationField> get_normalized_field_copy();
+		/** Voxelizes the scene geometry below `world_volume` onto the scoring grid (see Geant4::add_geometry_channel). */
+		void voxelize_geometry(const G4LogicalVolume& world_volume, int max_threads = -1);
+		/** Adds a copy of the voxelized geometry as channel "geometry" to `field`, which must share the scoring grid.
+		* Does nothing if no geometry was voxelized.
+		*/
+		void add_geometry_channel_to(RadFiled3D::CartesianRadiationField& field) const;
 
 		float get_statistical_error(size_t primary_particle_count = 0);
 		void register_on_new_particle(std::function<void(size_t, const G4Step*)> callback);
@@ -265,26 +275,26 @@ namespace RadiationSimulation {
 	// Lightweight per-worker stepping action owned by Geant4 (one per worker thread, created in Build()). It
 	// owns nothing and routes each step into the single app-owned detector shared by all workers, so every
 	// worker scores into one field.
-	class G4RadiationFieldSteppingAction : public G4UserSteppingAction {
-		G4RadiationFieldDetector* detector;   // non-owning: the app owns the shared detector
+	class RadiationFieldSteppingAction : public G4UserSteppingAction {
+		RadiationFieldDetector* detector;   // non-owning: the app owns the shared detector
 	public:
-		explicit G4RadiationFieldSteppingAction(G4RadiationFieldDetector* detector) : detector(detector) {}
+		explicit RadiationFieldSteppingAction(RadiationFieldDetector* detector) : detector(detector) {}
 		virtual void UserSteppingAction(const G4Step* step) override { this->detector->UserSteppingAction(step); }
 	};
 
-	class G4RadiationFieldAction : public G4VUserActionInitialization {
+	class RadiationFieldAction : public G4VUserActionInitialization {
 	protected:
-		std::shared_ptr<G4RadiationFieldDetector> det;
+		std::shared_ptr<RadiationFieldDetector> det;
 		// The physics source is shared read-only; Build() (called per worker thread) constructs a fresh
-		// G4RadiationSource per worker from it — a single shared generator across MT workers corrupts the
+		// RadiationSource per worker from it — a single shared generator across MT workers corrupts the
 		// gun's thread-local allocations (non-deterministic mid-run segfault). See the .cpp.
-		std::shared_ptr<RadiationSource> rad_source;
+		std::shared_ptr<RadiationSimulation::RadiationSource> rad_source;
 		int fluence_per_run;
 	public:
-		G4RadiationFieldAction(std::shared_ptr<G4RadiationFieldDetector> det, std::shared_ptr<RadiationSource> rad_source, int fluence_per_run = 1) : det(det), rad_source(rad_source), fluence_per_run(fluence_per_run) {};
+		RadiationFieldAction(std::shared_ptr<RadiationFieldDetector> det, std::shared_ptr<RadiationSimulation::RadiationSource> rad_source, int fluence_per_run = 1) : det(det), rad_source(rad_source), fluence_per_run(fluence_per_run) {};
 		void Build() const;
-		virtual ~G4RadiationFieldAction() {
-			G4cout << "G4RadiationFieldAction destroyed" << G4endl;
+		virtual ~RadiationFieldAction() {
+			G4cout << "RadiationFieldAction destroyed" << G4endl;
 		}
 	};
 }

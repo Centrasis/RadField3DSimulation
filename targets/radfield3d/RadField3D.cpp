@@ -26,6 +26,7 @@ namespace fs = std::experimental::filesystem;
 
 
 using namespace RadiationSimulation;
+namespace G4 = RadiationSimulation::Geant4;
 
 
 void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, fs::path out_path, size_t n_particles, std::shared_ptr<XRaySource> source, const std::string& geometry_file, const std::string& spectrum_file, const glm::vec3& source_dir, float source_distance, float xray_energy, bool should_append_to_file, long long start_time, RadFiled3D::Typing::FieldShape field_shape) {
@@ -75,12 +76,16 @@ void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, f
 		metadata->add_dynamic_metadata<glm::vec2>("xray_tube_field_ellipsis_opening_angles_deg", field_dims_or_angles);
 	}
 
-	RadFiled3D::CartesianRadiationField* cfield = (RadFiled3D::CartesianRadiationField*)field.get();
+	// The voxelized geometry is written only when the file is created; later stores update the radiation channels and
+	// metadata and keep the file's geometry channel.
+	if (!fs::exists(out_path))
+		World::Get()->get_radiation_field_detector()->add_geometry_channel_to(*std::static_pointer_cast<RadFiled3D::CartesianRadiationField>(field));
+
 	if (should_append_to_file) {
 		RadFiled3D::Storage::FieldStore::join(field, metadata, out_path.string(), RadFiled3D::Storage::FieldJoinMode::Add, RadFiled3D::Storage::FieldJoinCheckMode::MetadataSimulationSimilar);
 	}
 	else {
-		RadFiled3D::Storage::FieldStore::store(field, metadata, out_path.string());
+		RadFiled3D::Storage::FieldStore::replace(field, metadata, out_path.string());
 	}
 }
 
@@ -399,10 +404,10 @@ try {
 	else {
 		G4cout << "Initialize radiation simulation handler to use all available threads." << G4endl;
 	}
-	G4RadiationSimulationHandler* simulation_handler = RadiationSimulator::initialize(cpu_count).get();
+	G4::RadiationSimulationHandler* simulation_handler = RadiationSimulator::initialize(cpu_count).get();
 	RadiationSimulator::set_world_info(std::make_unique<WorldInfo>(world_material, world_dim));
 
-	std::vector<std::shared_ptr<Mesh>> meshes;
+	std::vector<std::shared_ptr<Geometry::Mesh>> meshes;
 	if (!geometry_file.empty()) {
 		G4cout << "Attempt to load geometry from: " << geometry_file.string() << G4endl;
 		if (!geometry_desc_file.empty())
@@ -506,11 +511,11 @@ try {
 
 	if (should_append_to_file)
 	{
-		// enable_file_lock_syncronization is flagged experimental/deprecated upstream; it is only needed for
+		// enable_file_lock_synchronization is flagged experimental/deprecated upstream; it is only needed for
 		// the concurrent-append path, which is the one case that relies on it.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-		RadFiled3D::Storage::FieldStore::enable_file_lock_syncronization(true);
+		RadFiled3D::Storage::FieldStore::enable_file_lock_synchronization(true);
 #pragma GCC diagnostic pop
 	}
 
@@ -532,7 +537,7 @@ try {
 #endif
 
 	auto field = RadiationSimulator::simulate_radiation_field(particle_count, tracing_algorithm);
-	last_particle_count = G4World::Get()->get_radiation_field_detector()->get_number_of_tracked_particles();
+	last_particle_count = G4::World::Get()->get_radiation_field_detector()->get_number_of_tracked_particles();
 	store_radiation_field(field, out_path, last_particle_count, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, should_append_to_file, start_time, field_shape);
 
 	G4cout << G4endl << "Wrote field to: " << out_path.string() << G4endl;

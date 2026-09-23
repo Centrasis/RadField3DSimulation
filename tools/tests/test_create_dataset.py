@@ -11,7 +11,7 @@ desc_file = """
 {
     "patient": {
         "MaterialName": "G4_TISSUE_SOFT_ICRU-4",
-        "Patient": true,
+        "Type": "Patient",
         "Transform": {
             "Rotation": {
                 "X": 0,
@@ -31,7 +31,7 @@ desc_file = """
         },
         "Children": {
             "lung": {
-                "Patient": false,
+                "Type": "Organ",
                 "MaterialName": "G4_LUNG_ICRP",
                 "Transform": {
                     "Rotation": {

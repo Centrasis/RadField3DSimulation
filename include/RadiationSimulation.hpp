@@ -17,7 +17,7 @@ namespace RadiationSimulation {
 		/**
 		 * @brief Shared pointer to the radiation simulation handler.
 		 */
-		static std::shared_ptr<G4RadiationSimulationHandler> handler;
+		static std::shared_ptr<Geant4::RadiationSimulationHandler> handler;
 
 		/**
 		 * @brief Flag indicating if the simulator is busy.
@@ -29,7 +29,7 @@ namespace RadiationSimulation {
 		 * @brief Initializes the radiation simulation handler.
 		 * @return Shared pointer to the initialized radiation simulation handler.
 		 */
-		static std::shared_ptr<G4RadiationSimulationHandler> initialize(const int cpu_count = -1);
+		static std::shared_ptr<Geant4::RadiationSimulationHandler> initialize(const int cpu_count = -1);
 
 		/**
 		 * @brief Simulates the radiation field. Shall support multi-threading, but is not required to allow a non-blocking call.
@@ -55,13 +55,13 @@ namespace RadiationSimulation {
 		 * @brief Adds geometry to the simulation.
 		 * @param meshes Vector of shared pointers to the meshes to add.
 		 */
-		static void add_geometry(const std::vector<std::shared_ptr<Mesh>>& meshes);
+		static void add_geometry(const std::vector<std::shared_ptr<Geometry::Mesh>>& meshes);
 
 		/**
 		 * @brief Adds a single mesh to the simulation.
 		 * @param mesh Shared pointer to the mesh to add.
 		 */
-		static void add_geometry(std::shared_ptr<Mesh> mesh);
+		static void add_geometry(std::shared_ptr<Geometry::Mesh> mesh);
 
 		/**
 		 * @brief Adds a radiation source to the simulation.

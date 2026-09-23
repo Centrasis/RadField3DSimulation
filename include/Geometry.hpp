@@ -10,7 +10,11 @@
 #include "Collisions.h"
 
 
-namespace RadiationSimulation {
+namespace RadiationSimulation::Geant4 {
+	class Mesh;
+}
+
+namespace RadiationSimulation::Geometry {
 	enum class FaceType {
 		Tri,
 		Quad
@@ -46,7 +50,14 @@ namespace RadiationSimulation {
 	typedef FaceT<glm::uvec4, FaceType::Quad> QuadFace;
 
 	class Mesh {
-		friend class G4Mesh;
+		friend class RadiationSimulation::Geant4::Mesh;
+	public:
+		/// Type of a mesh without an explicit "Type" in its geometry description.
+		static constexpr const char* DEFAULT_TYPE = "unknown";
+		/// Type marking the patient. At most one mesh of a scene may have it.
+		static constexpr const char* PATIENT_TYPE = "patient";
+		/// Types name layers of the stored geometry channel, whose names hold at most this many characters.
+		static constexpr size_t MAX_TYPE_LENGTH = 63;
 	protected:
 		std::vector<glm::vec3> vertices;
 		const std::vector<Face*> faces;
@@ -55,7 +66,7 @@ namespace RadiationSimulation {
 		glm::quat rotation = glm::quat_cast(glm::mat4(1.f));
 		glm::vec3 position = glm::vec3(0.f);
 		glm::vec3 scale    = glm::vec3(1.f);
-		bool bis_patient = false;
+		std::string type = Mesh::DEFAULT_TYPE;
 		struct {
 			bool bis_source = false;
 			float concentric_distance = 0.f;
@@ -83,7 +94,14 @@ namespace RadiationSimulation {
 
 		const std::vector<Face*>& getFaces() const;
 
-		inline const bool isPatient() const { return this->bis_patient; };
+		/// The mesh's type, always in lower case.
+		inline const std::string& getType() const { return this->type; };
+		/** Sets the type, matched case-insensitively: it is stored in lower case, so e.g. "Shield" and "SHIELD" are one type.
+		* @throws std::invalid_argument if the type is empty or longer than MAX_TYPE_LENGTH.
+		*/
+		void setType(const std::string& type);
+
+		inline const bool isPatient() const { return this->type == Mesh::PATIENT_TYPE; };
 
 		inline const bool isSource() const { return this->source_info.bis_source; };
 		inline const float getSourceConcentricDistance() const { return this->source_info.concentric_distance; };
@@ -93,8 +111,6 @@ namespace RadiationSimulation {
 			this->source_info.concentric_distance = concentric_distance;
 			this->source_info.rotation_offset_radians = rotation_offset_radians;
 		};
-
-		inline void markAsPatient() { this->bis_patient = true; };
 
 		const std::string& getName() const;
 

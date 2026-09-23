@@ -12,14 +12,17 @@
 #endif
 class G4VModularPhysicsList;
 
-namespace RadiationSimulation {
+namespace RadiationSimulation::Geometry {
 	class Mesh;
-	class G4RadiationFieldDetector;
+}
+
+namespace RadiationSimulation::Geant4 {
+	class RadiationFieldDetector;
 
 	/**
 	 * @brief Handler for Geant4-based radiation simulation.
 	 */
-	class G4RadiationSimulationHandler {
+	class RadiationSimulationHandler {
 	protected:
 		struct {
 			glm::vec3 radiation_field_dimensions; ///< Dimensions of the radiation field.
@@ -34,9 +37,10 @@ namespace RadiationSimulation {
 			glm::uvec2 angular_resolution = glm::uvec2(0); //< Number of segments (phi, theta) for angular distribution per voxel. 0 = disabled
 		} radiation_field_resolution;
 
-		std::vector<std::shared_ptr<Mesh>> meshes;
+		std::vector<std::shared_ptr<Geometry::Mesh>> meshes;
 		int cpu_count; ///< Number of CPU cores to use.
 		bool run_mgr_initialized = false; ///< Flag indicating if the run manager is initialized.
+		bool geometry_voxelized = false; ///< Flag indicating if the scene geometry was voxelized into the field detector.
 		G4VModularPhysicsList* physics; ///< Pointer to the physics list.
 		const int base_particle_count = 1e+6; ///< Base particle count for the simulation.
 		bool has_ui = false; ///< Flag indicating if the UI is available.
@@ -46,11 +50,11 @@ namespace RadiationSimulation {
 		std::shared_ptr<G4UImanager> G4UIManager; ///< Shared pointer to the Geant4 UI manager.
 		std::unique_ptr<G4VisExecutive> G4VisManager; ///< Unique pointer to the Geant4 visualization manager.
 #endif
-		std::shared_ptr<G4RadiationFieldDetector> field_detector; ///< Shared pointer to the radiation field detector.
+		std::shared_ptr<RadiationFieldDetector> field_detector; ///< Shared pointer to the radiation field detector.
 		std::vector<std::pair<size_t, std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)>>> callbacks; ///< Vector of callbacks.
 
 	public:
-		G4RadiationSimulationHandler(const int cpu_count = -1);
+		RadiationSimulationHandler(const int cpu_count = -1);
 
 		/**
 		 * @brief Set the resolution of the radiation field.
@@ -82,7 +86,7 @@ namespace RadiationSimulation {
 		 * @brief Add geometry to the simulation.
 		 * @param meshes Vector of shared pointers to Mesh objects.
 		 */
-		virtual void add_geometry(const std::vector<std::shared_ptr<Mesh>>& meshes);
+		virtual void add_geometry(const std::vector<std::shared_ptr<Geometry::Mesh>>& meshes);
 
 		/**
 		 * @brief Simulate the radiation field.
@@ -101,7 +105,7 @@ namespace RadiationSimulation {
 		 * @brief Get the used field detector.
 		 * @return Shared pointer to the used field detector.
 		 */
-		inline std::shared_ptr<G4RadiationFieldDetector> get_used_field_detector() const { return this->field_detector; }
+		inline std::shared_ptr<RadiationFieldDetector> get_used_field_detector() const { return this->field_detector; }
 
 		/**
 		 * @brief Add a callback to be executed every n particles.

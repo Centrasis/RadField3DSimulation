@@ -6,6 +6,7 @@
 #include <G4SystemOfUnits.hh>
 #include <G4PVPlacement.hh>
 #include "Geant4/G4World.hpp"
+#include "Geant4/G4Geometry.hpp"
 #include <G4SDManager.hh>
 #include <G4ios.hh>
 #include <G4SteppingManager.hh>
@@ -31,10 +32,12 @@
 
 
 using namespace RadiationSimulation;
+using namespace RadiationSimulation::Geometry;
+using namespace RadiationSimulation::Geant4;
 
 static std::string AIR_NAME = "G4_AIR";
 
-void RadiationSimulation::G4RadiationFieldDetector::evaluate_field()
+void RadiationSimulation::Geant4::RadiationFieldDetector::evaluate_field()
 {
 	// Diagnostics only: the double accumulators stay untouched; normalization and the fp32
 	// conversion happen in get_normalized_field_copy(), which every store path uses.
@@ -61,7 +64,7 @@ void RadiationSimulation::G4RadiationFieldDetector::evaluate_field()
 		G4cout << "WARNING: On average there wasn't at least one voxel hit per particle. This is an indication of an unmatching tracking volume size or errorneous scene definitions. Average hits per voxel was: " << accumulated_hits_per_particle << G4endl;
 }
 
-std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::G4RadiationFieldDetector::get_normalized_field_copy()
+std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::Geant4::RadiationFieldDetector::get_normalized_field_copy()
 {
 	// Builds the STORED field: per-primary normalization of the double accumulators, written
 	// into fresh fp32 layers. The scoring field itself stays untouched.
@@ -120,7 +123,26 @@ std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::G4RadiationFie
 	return copy;
 }
 
-void RadiationSimulation::G4RadiationFieldDetector::score_step_for(const G4Step* step, const std::vector<size_t>& voxel_indices, TrackStage stage)
+void RadiationSimulation::Geant4::RadiationFieldDetector::add_geometry_channel_to(RadFiled3D::CartesianRadiationField& field) const
+{
+	if (!this->geometry || !this->geometry->has_channel("geometry"))
+		return;
+	const std::shared_ptr<RadFiled3D::VoxelGridBuffer> source = this->geometry->get_channel("geometry");
+	RadFiled3D::VoxelGridBuffer* out = static_cast<RadFiled3D::VoxelGridBuffer*>(field.add_channel("geometry").get());
+	for (const std::string& layer : source->get_layers()) {
+		out->add_layer<uint8_t>(layer, 0, source->get_layer_unit(layer));
+		out->copy_layer_data(layer, *source);
+	}
+}
+
+void RadiationSimulation::Geant4::RadiationFieldDetector::voxelize_geometry(const G4LogicalVolume& world_volume, int max_threads)
+{
+	auto geometry_field = std::make_shared<RadFiled3D::CartesianRadiationField>(this->field->get_field_dimensions(), this->field->get_voxel_dimensions());
+	Geant4::add_geometry_channel(*geometry_field, world_volume, max_threads);
+	this->geometry = geometry_field;
+}
+
+void RadiationSimulation::Geant4::RadiationFieldDetector::score_step_for(const G4Step* step, const std::vector<size_t>& voxel_indices, TrackStage stage)
 {
 	const float energy = static_cast<float>(step->GetTrack()->GetTotalEnergy());
 	auto p1 = step->GetPreStepPoint()->GetPosition();
@@ -138,7 +160,7 @@ void RadiationSimulation::G4RadiationFieldDetector::score_step_for(const G4Step*
 	}
 }
 
-RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold, float statistical_error_enforcement_ratio, float statistical_error_enforcement_resolution, const glm::uvec2& angular_resolution)
+RadiationSimulation::Geant4::RadiationFieldDetector::RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold, float statistical_error_enforcement_ratio, float statistical_error_enforcement_resolution, const glm::uvec2& angular_resolution)
 	: field(std::make_shared<RadFiled3D::CartesianRadiationField>(radiation_field_dimensions, radiation_field_voxel_dimensions)),
 	  spectra_bins(spectra_bins),
 	  spectra_bin_width(spectra_bin_width),
@@ -156,14 +178,14 @@ RadiationSimulation::G4RadiationFieldDetector::G4RadiationFieldDetector(const gl
 	this->buffers.scatter_field.statistical_error_resolution = statistical_error_enforcement_resolution;
 }
 
-std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::G4RadiationFieldDetector::evaluate()
+std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::Geant4::RadiationFieldDetector::evaluate()
 {
 	// The scoring field accumulates in double; every consumer gets the normalized fp32 copy.
 	this->evaluate_field();
 	return this->get_normalized_field_copy();
 }
 
-void RadiationSimulation::G4RadiationFieldDetector::SetUp()
+void RadiationSimulation::Geant4::RadiationFieldDetector::SetUp()
 {
 	std::unique_lock lock(this->global_detector_mutex);
 	if (this->air_material == NULL) {
@@ -172,7 +194,7 @@ void RadiationSimulation::G4RadiationFieldDetector::SetUp()
 	}
 }
 
-void RadiationSimulation::G4RadiationFieldDetector::finalize(size_t particle_count)
+void RadiationSimulation::Geant4::RadiationFieldDetector::finalize(size_t particle_count)
 {
 	// clear() invalidates the thread_contexts iterators/references that UserSteppingAction holds lock-free
 	// (it releases the shared_lock right after find()). Take the unique lock so a worker still stepping is
@@ -187,17 +209,17 @@ void RadiationSimulation::G4RadiationFieldDetector::finalize(size_t particle_cou
 	this->is_tracking = true;
 }
 
-size_t RadiationSimulation::G4RadiationFieldDetector::get_primary_particle_count() const
+size_t RadiationSimulation::Geant4::RadiationFieldDetector::get_primary_particle_count() const
 {
 	return this->primary_particle_count;
 }
 
-size_t RadiationSimulation::G4RadiationFieldDetector::get_number_of_tracked_particles() const
+size_t RadiationSimulation::Geant4::RadiationFieldDetector::get_number_of_tracked_particles() const
 {
 	return this->tracked_events_counter;
 }
 
-void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4Step* step)
+void RadiationSimulation::Geant4::RadiationFieldDetector::UserSteppingAction(const G4Step* step)
 {
 	if (!this->is_tracking) {
 		G4RunManager::GetRunManager()->AbortEvent();
@@ -349,27 +371,27 @@ void RadiationSimulation::G4RadiationFieldDetector::UserSteppingAction(const G4S
 	}
 }
 
-float RadiationSimulation::G4RadiationFieldDetector::get_statistical_error(size_t primary_particle_count)
+float RadiationSimulation::Geant4::RadiationFieldDetector::get_statistical_error(size_t primary_particle_count)
 {
 	return this->buffers.scatter_field.get_overall_statistical_error_estimate(primary_particle_count, this->statistical_error_enforcement_ratio);
 }
 
-void RadiationSimulation::G4RadiationFieldDetector::register_on_new_particle(std::function<void(size_t, const G4Step*)> callback)
+void RadiationSimulation::Geant4::RadiationFieldDetector::register_on_new_particle(std::function<void(size_t, const G4Step*)> callback)
 {
 	this->new_particle_callbacks.push_back(callback);
 }
 
-void RadiationSimulation::G4RadiationFieldAction::Build() const
+void RadiationSimulation::Geant4::RadiationFieldAction::Build() const
 {
 	// Geant4 MT calls Build() once PER WORKER THREAD. The primary generator MUST be per-thread: a single
-	// shared G4RadiationSource means every worker mutates one G4ParticleGun, and GeneratePrimaryVertex
+	// shared Geant4::RadiationSource means every worker mutates one G4ParticleGun, and GeneratePrimaryVertex
 	// allocates G4PrimaryVertex/G4PrimaryParticle through Geant4's THREAD-LOCAL allocators — using them
 	// across threads corrupts the heap -> non-deterministic mid-run segfault. Build a fresh generator per
 	// worker (Geant4 takes ownership and deletes it per-thread). The detector/field is intentionally shared
 	// (accumulated under striped per-voxel locks).
 	// NOTE: rad_source's own RNG (std::mt19937 in the shape) is still shared across workers — a data race on
 	// the random stream (correlated/garbage directions, NOT a crash). Make it per-thread/thread_local next.
-	SetUserAction(new G4RadiationSource(this->rad_source, this->fluence_per_run));
+	SetUserAction(new Geant4::RadiationSource(this->rad_source, this->fluence_per_run));
 	// Per-worker forwarder into the shared, app-owned detector (Geant4 owns/deletes THIS, not the detector).
-	SetUserAction(new G4RadiationFieldSteppingAction(this->det.get()));
+	SetUserAction(new Geant4::RadiationFieldSteppingAction(this->det.get()));
 }

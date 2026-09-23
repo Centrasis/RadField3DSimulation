@@ -6,9 +6,11 @@
 // most accurate low-energy EM constructor (Livermore/Penelope-based models). No hadronic/neutron physics:
 // diagnostic-energy photons stay far below the ~MeV photonuclear threshold, so hadronic constructors never
 // fire — they would only add startup cost and load neutron cross-section data that is never used.
-class MedicalPhysicsList : public G4VModularPhysicsList {
-public:
-    MedicalPhysicsList() {
-        RegisterPhysics(new G4EmStandardPhysics_option4());
-    }
-};
+namespace RadiationSimulation::Geant4 {
+    class MedicalPhysicsList : public G4VModularPhysicsList {
+    public:
+        MedicalPhysicsList() {
+            RegisterPhysics(new G4EmStandardPhysics_option4());
+        }
+    };
+}

@@ -1,9 +1,13 @@
 #include "Geometry.hpp"
 #include <Eigen/Dense>
 #include <glm/gtc/quaternion.hpp>
+#include <algorithm>
+#include <cctype>
+#include <stdexcept>
+#include <string>
 
 
-using namespace RadiationSimulation;
+using namespace RadiationSimulation::Geometry;
 
 
 Mesh::Mesh(const std::vector<glm::vec3>& vertices, const std::vector<Face*>& faces, const std::string& name)
@@ -17,6 +21,17 @@ Mesh::~Mesh()
 {
 	for (Face* face : this->faces)
 		delete face;
+}
+
+void Mesh::setType(const std::string& type)
+{
+	if (type.empty())
+		throw std::invalid_argument("A mesh type must not be empty.");
+	if (type.length() > Mesh::MAX_TYPE_LENGTH)
+		throw std::invalid_argument("The mesh type \"" + type + "\" is longer than " + std::to_string(Mesh::MAX_TYPE_LENGTH) + " characters.");
+	std::string lower_case(type);
+	std::transform(lower_case.begin(), lower_case.end(), lower_case.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	this->type = lower_case;
 }
 
 void Mesh::attachMaterialName(const std::string name)
@@ -54,7 +69,7 @@ size_t Mesh::faceCount() const
 	return this->faces.size();
 }
 
-std::shared_ptr<OrientedBoundingBox> RadiationSimulation::Mesh::getOrientedBoundingBox() const
+std::shared_ptr<OrientedBoundingBox> Mesh::getOrientedBoundingBox() const
 {
 	std::vector<glm::vec3> transformed_vertices(this->vertices.size());
 	for (size_t i = 0; i < this->vertices.size(); i++) {
@@ -97,7 +112,7 @@ std::shared_ptr<OrientedBoundingBox> RadiationSimulation::Mesh::getOrientedBound
 	return std::make_shared<OrientedBoundingBox>(glm::vec3(centroid.x(), centroid.y(), centroid.z()), axes_list, glm::vec3(min_coeffs.x(), min_coeffs.y(), min_coeffs.z()), glm::vec3(max_coeffs.x(), max_coeffs.y(), max_coeffs.z()));
 }
 
-std::shared_ptr<Collisions::Capsule> RadiationSimulation::Mesh::getBoundingCapsule() const
+std::shared_ptr<Collisions::Capsule> Mesh::getBoundingCapsule() const
 {
 	auto obb = this->getOrientedBoundingBox();
 
@@ -113,7 +128,7 @@ std::shared_ptr<Collisions::Capsule> RadiationSimulation::Mesh::getBoundingCapsu
 	return std::make_shared<Collisions::Capsule>(p1, p2, radius);
 }
 
-RadiationSimulation::OrientedBoundingBox::OrientedBoundingBox(const glm::vec3& centroid, const std::array<glm::vec3, 3>& axes, const glm::vec3& min_coeffs, const glm::vec3& max_coeffs)
+OrientedBoundingBox::OrientedBoundingBox(const glm::vec3& centroid, const std::array<glm::vec3, 3>& axes, const glm::vec3& min_coeffs, const glm::vec3& max_coeffs)
 	: centroid(centroid),
 	  axes(axes),
 	  min_coeffs(min_coeffs),
