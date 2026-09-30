@@ -480,6 +480,7 @@ if __name__ == "__main__":
     parser.add_argument("--voxel_size", default=0.05, type=float, nargs=1, required=False, help="Dimension of the cubic voxels in m")
     parser.add_argument("--world_size", default=[1, 1, 1], type=float, nargs=3, required=False, help="Dimension of the rectangular world in m")
     parser.add_argument("--angular_resolution", default=[0, 0], type=int, nargs=2, required=False, help="Enables an extra layer that captures the angular distribution of the flux in each voxel.")
+    parser.add_argument("--autosave_interval", default=1e7, type=float, required=False, help="Store each field every N photons while it is simulated (every save writes the whole file and pauses the scoring); 0 turns auto-saves off. Default 1e7.")
     parser.add_argument("--statistical_error_threshold", default=None, type=float, required=False, help="Stop a field early once the binary's estimate of the relative statistical error falls below this value. 0 (default) turns the early stop off, so every field gets exactly --particles photons. A 'StatisticalErrorThreshold' metaparameter in the definition sets it too.")
     parser.add_argument("--directional_lobes", default=0, type=int, required=False, help="Maximum number of von Mises-Fisher lobes per voxel (1-8, 0 = off), stored as layer 'vmf_lobes'. One value for the whole dataset, so every field has the same layer layout. A 'DirectionalLobes' metaparameter in the definition sets it too.")
     parser.add_argument("--join_channels", default=False, action="store_true", required=False, help="Post simulation join the direct_beam and scatter_field channels into a single per-primary field (removing the originals) to save memory. Flux is summed; the spectrum is combined flux-weighted per voxel.")
@@ -902,6 +903,7 @@ if __name__ == "__main__":
                         "--path-length-weighting", args.path_length_weighting,
                         *(["--directional-lobes", str(directional_lobes)] if directional_lobes > 0 else []),
                         "--statistical-error-threshold", str(statistical_error_threshold),
+                        "--autosave-interval", str(int(args.autosave_interval)),
                         "--world-material", world_material
                     ] + additional_options + spec_args + geom_args
 

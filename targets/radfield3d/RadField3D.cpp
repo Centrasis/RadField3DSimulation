@@ -127,7 +127,7 @@ try {
 	bool should_append_to_file = false;
 	fs::path out_path;
 	size_t particle_count = 1e+6;
-	size_t autosave_interval = 1e+6;
+	size_t autosave_interval = 1e+7;
 	float voxel_dim = 0.1f;
 	float energy_resolution = 1e+3;
 	float statistical_error_threshold = 0.1f;
@@ -174,7 +174,7 @@ try {
 #endif
 		G4cout << "  --append: Flag if this simulation data should be appended to an potentially existing file using the SimulationSimilar policy" << G4endl;
 		G4cout << "  --cpu-count: Number of CPU cores to use. Default: -1 (all available cores)" << G4endl;
-		G4cout << "  --autosave-interval: Store the field every N particles. Default: 1e6, 0 disables auto-saves" << G4endl;
+		G4cout << "  --autosave-interval: Store the field every N particles. Default: 1e7, 0 disables auto-saves" << G4endl;
 		return 0;
 	}
 
