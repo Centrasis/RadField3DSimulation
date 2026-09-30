@@ -12,7 +12,9 @@ import shutil
 from typing import NamedTuple
 import datetime
 import platform
-from helpers import join_rf3_file, add_patient_translation
+from helpers import join_rf3_file, add_patient_translation, mark_patient_overlap
+from helpers.metadata_field import PATIENT_OVERLAP_KEY
+from helpers.join_field import VMF_JOIN_MODES
 import uuid
 from copy import deepcopy
 import logging
@@ -299,6 +301,22 @@ class ParameterizedSampler(ParameterSelector):
 
 
 class GeometrySampler(object):
+    """Samples the geometry transformations of a dataset definition ("GeometryTransformations") per field.
+
+    Two kinds of entries:
+
+    * **Mesh entry** — the key is a mesh name, the value maps "Translation" / "Rotation" / "Scale" to per-axis ranges.
+      The sampled values *replace* the mesh's own values (kept as it was, so existing definitions reproduce).
+    * **Group entry** — the key is a free name and the value lists the moved meshes under "Meshes", e.g.
+      ``"patient_on_table": {"Meshes": ["patient", "HardDesk"], "Translation": {"X": [-0.25, 0.25]}}``.
+      One translation is drawn per field and *added* to every listed mesh's own translation, so the meshes move
+      rigidly together and keep their arrangement. Children move with their parent and are not listed. Groups only
+      take a "Translation" (a per-mesh rotation would not rotate the group as a whole).
+
+    Every named mesh must exist in the description and may appear in only one entry.
+    """
+    GROUP_MESHES_KEY = "Meshes"
+
     def __init__(self, geometry_desc_file: str, object_tranformation_ranges: dict):
         """
         Initializes the GeometrySampler with a geometry file and transformation ranges.
@@ -308,6 +326,27 @@ class GeometrySampler(object):
         """
         self.geometry_desc_file = geometry_desc_file
         self.object_transformation_ranges = object_tranformation_ranges
+        self.mesh_entries = {name: ranges for name, ranges in object_tranformation_ranges.items() if self.GROUP_MESHES_KEY not in ranges}
+        self.group_entries = {}
+        for name, entry in object_tranformation_ranges.items():
+            if self.GROUP_MESHES_KEY not in entry:
+                continue
+            meshes = entry[self.GROUP_MESHES_KEY]
+            if not isinstance(meshes, list) or len(meshes) == 0 or not all(isinstance(m, str) for m in meshes):
+                raise ValueError(f"Geometry group '{name}': '{self.GROUP_MESHES_KEY}' must be a non-empty list of mesh names, got {meshes}")
+            transforms = {k: v for k, v in entry.items() if k != self.GROUP_MESHES_KEY}
+            if set(transforms) != {"Translation"}:
+                raise ValueError(f"Geometry group '{name}' may only define a 'Translation' (applied as an offset to every listed mesh), got {sorted(transforms)}")
+            self.group_entries[name] = {"meshes": list(meshes), "Translation": transforms["Translation"]}
+        owners = {}
+        for name in self.mesh_entries:
+            owners.setdefault(name, []).append(name)
+        for name, group in self.group_entries.items():
+            for mesh in group["meshes"]:
+                owners.setdefault(mesh, []).append(name)
+        duplicates = {mesh: entries for mesh, entries in owners.items() if len(entries) > 1}
+        if duplicates:
+            raise ValueError(f"Meshes appear in more than one GeometryTransformations entry: {duplicates}")
 
     @staticmethod
     def can_load_from(definition_file: str) -> bool:
@@ -352,6 +391,17 @@ class GeometrySampler(object):
             object_tranformation_ranges=file_content["GeometryTransformations"]
         )
 
+    @staticmethod
+    def _find_mesh(geometry_desc: dict, name: str):
+        for obj_name, parameters in geometry_desc.items():
+            if obj_name == name:
+                return parameters
+            if isinstance(parameters, dict) and "Children" in parameters:
+                found = GeometrySampler._find_mesh(parameters["Children"], name)
+                if found is not None:
+                    return found
+        return None
+
     def modify_geometry_desc(self, geometry_desc: dict, target_obj_name: str, new_transformation: dict) -> dict:
         for obj_name, parameters in geometry_desc.items():
             if obj_name == target_obj_name:
@@ -366,32 +416,38 @@ class GeometrySampler(object):
                 self.modify_geometry_desc(parameters["Children"], target_obj_name, new_transformation)
         return geometry_desc
 
+    @staticmethod
+    def _sample_ranges(transformations: dict, label: str) -> dict:
+        """Draws one value per axis from the ranges of a {component: {axis: range}} dictionary."""
+        transformation = deepcopy(transformations)
+        for key in transformation.keys():
+            for axis in transformation[key].keys():
+                val_range = transformation[key][axis]
+                if isinstance(val_range, (list, tuple)) and len(val_range) > 0:
+                    val_range = val_range if len(val_range) >= 2 else [val_range[0], val_range[0]]
+                    # Sample a random value from the range
+                    if isinstance(val_range[0], int):
+                        transformation[key][axis] = random.randint(val_range[0], val_range[1])
+                    elif isinstance(val_range[0], float):
+                        transformation[key][axis] = random.uniform(val_range[0], val_range[1])
+                elif isinstance(val_range, (int, float)):
+                    # If it's a single value, just use it
+                    transformation[key][axis] = val_range
+                else:
+                    raise Exception(f"Invalid transformation range for {label} {key} {axis}: {val_range}. Must be a list of two values or a single value.")
+        return transformation
+
     def _sample_transformation_per_object(self) -> dict:
         """
-        Just draws a random sample from the given transformation dictionary.
+        Just draws a random sample for every mesh entry.
         Is called from sample_transformations.
         """
-        out_transformations = {}
-        for obj_name, transformations in self.object_transformation_ranges.items():
-            # apply sampling from the transformation range
-            transformation = deepcopy(transformations)
-            for key in transformation.keys():
-                for axis in transformation[key].keys():
-                    val_range = transformation[key][axis]
-                    if isinstance(val_range, (list, tuple)) and len(val_range) > 0:
-                        val_range = val_range if len(val_range) >= 2 else [val_range[0], val_range[0]]
-                        # Sample a random value from the range
-                        if isinstance(val_range[0], int):
-                            transformation[key][axis] = random.randint(val_range[0], val_range[1])
-                        elif isinstance(val_range[0], float):
-                            transformation[key][axis] = random.uniform(val_range[0], val_range[1])
-                    elif isinstance(val_range, (int, float)):
-                        # If it's a single value, just use it
-                        transformation[key][axis] = val_range
-                    else:
-                        raise Exception(f"Invalid transformation range for {obj_name} {key} {axis}: {val_range}. Must be a list of two values or a single value.")
-            out_transformations[obj_name] = transformation
-        return out_transformations
+        return {obj_name: self._sample_ranges(ranges, obj_name) for obj_name, ranges in self.mesh_entries.items()}
+
+    def _sample_group_translations(self) -> dict:
+        """Draws one translation offset per group: {group: (meshes, {axis: offset})}."""
+        return {name: (group["meshes"], self._sample_ranges({"Translation": group["Translation"]}, name)["Translation"])
+                for name, group in self.group_entries.items()}
 
     def sample_transformations(self, new_geometry_desc_file: str):
         """
@@ -403,8 +459,19 @@ class GeometrySampler(object):
         with open(self.geometry_desc_file, "r") as f:
             content = json.loads(f.read())
 
+        missing = [name for name in list(self.mesh_entries) + [m for g in self.group_entries.values() for m in g["meshes"]]
+                   if self._find_mesh(content, name) is None]
+        if missing:
+            raise ValueError(f"GeometryTransformations name meshes that are not in {self.geometry_desc_file}: {missing}")
+
         for obj_name, transformation in self._sample_transformation_per_object().items():
             content = self.modify_geometry_desc(content, obj_name, transformation)
+
+        for meshes, offset in self._sample_group_translations().values():
+            for mesh in meshes:
+                translation = self._find_mesh(content, mesh).setdefault("Transform", {}).setdefault("Translation", {})
+                for axis in ("X", "Y", "Z"):
+                    translation[axis] = float(translation.get(axis, 0.0)) + float(offset.get(axis, 0.0))
 
         content = json.dumps(content, indent=4)
         if os.path.exists(new_geometry_desc_file):
@@ -483,6 +550,7 @@ if __name__ == "__main__":
     parser.add_argument("--autosave_interval", default=1e7, type=float, required=False, help="Store each field every N photons while it is simulated (every save writes the whole file and pauses the scoring); 0 turns auto-saves off. Default 1e7.")
     parser.add_argument("--statistical_error_threshold", default=None, type=float, required=False, help="Stop a field early once the binary's estimate of the relative statistical error falls below this value. 0 (default) turns the early stop off, so every field gets exactly --particles photons. A 'StatisticalErrorThreshold' metaparameter in the definition sets it too.")
     parser.add_argument("--directional_lobes", default=0, type=int, required=False, help="Maximum number of von Mises-Fisher lobes per voxel (1-8, 0 = off), stored as layer 'vmf_lobes'. One value for the whole dataset, so every field has the same layer layout. A 'DirectionalLobes' metaparameter in the definition sets it too.")
+    parser.add_argument("--vmf_join_mode", default=None, choices=VMF_JOIN_MODES, required=False, help="How joining channels treats the scatter channel's 'vmf_lobes': 'beam_lobe' (default) adds one narrow lobe per voxel pointing from the focal spot through the voxel and merges it with the scatter lobes by their shares of the voxel flux (joined layer: DirectionalLobes + 1 lobes); 'scatter_only' keeps the scatter lobes unchanged. A 'VMFJoinMode' metaparameter in the definition sets it too.")
     parser.add_argument("--join_channels", default=False, action="store_true", required=False, help="Post simulation join the direct_beam and scatter_field channels into a single per-primary field (removing the originals) to save memory. Flux is summed; the spectrum is combined flux-weighted per voxel.")
     parser.add_argument("--energy_res", default=1e+2, type=float, nargs=1, required=False, help="Energy resolution to use in eV for the sampling of new energies during dataset creation.")
     parser.add_argument("--binary", default="RadField3D.exe", type=str, nargs=1, required=False, help="Path to RadField3D Binary")
@@ -643,8 +711,18 @@ if __name__ == "__main__":
             directional_lobes = int(_definition_lobes)
     if not 0 <= directional_lobes <= 8:
         raise ValueError(f"The number of directional lobes must lie in [0, 8], got {directional_lobes}")
-    if directional_lobes > 0 and should_join_channels:
-        raise ValueError("Joining channels is not supported together with directional lobes: the joined channel would carry lobes that describe only its scatter part")
+
+    # How joining treats the scatter lobes (the direct beam has none): one value for the whole dataset as well.
+    vmf_join_mode = args.vmf_join_mode
+    if dataset_definition_file is not None:
+        _definition_mode = json.load(open(dataset_definition_file, "r")).get("Metaparameters", {}).get("VMFJoinMode")
+        if _definition_mode is not None:
+            if vmf_join_mode not in (None, _definition_mode):
+                raise ValueError(f"--vmf_join_mode {vmf_join_mode} contradicts VMFJoinMode {_definition_mode} of the dataset definition")
+            vmf_join_mode = _definition_mode
+    vmf_join_mode = vmf_join_mode or "beam_lobe"
+    if vmf_join_mode not in VMF_JOIN_MODES:
+        raise ValueError(f"VMFJoinMode must be one of {VMF_JOIN_MODES}, got '{vmf_join_mode}'")
 
     # Early stop on the statistical error: off by default, so the photon count per field is the one requested.
     statistical_error_threshold = args.statistical_error_threshold
@@ -957,7 +1035,10 @@ if __name__ == "__main__":
 
                     if should_join_channels:
                         LOGGER.info("Joining direct_beam and scatter_field channels into a single per-primary field to save memory...")
-                        join_rf3_file(out_path)
+                        join_rf3_file(out_path, vmf_join_mode=vmf_join_mode)
+
+                    if mark_patient_overlap(out_path):
+                        LOGGER.warning(f"The C-arm (image detector, tube or focal spot) overlaps the patient; marked the field with '{PATIENT_OVERLAP_KEY}' metadata.")
                 else:
                     LOGGER.error(f"Field was not written to -> {out_path}")
 

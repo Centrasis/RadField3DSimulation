@@ -1,4 +1,5 @@
 #include "RadiationSource.hpp"
+#include <glm/gtc/constants.hpp>
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -28,10 +29,21 @@ void RadiationSource::setTransform(const glm::vec3& location, const glm::vec3& o
 	if (normalizedOrientation == up) {
 		return;
 	}
-	
 	glm::vec3 axis = glm::cross(up, normalizedOrientation);
+	// exactly opposite to the reference axis the shortest rotation has no axis of its own: turn about X
+	if (glm::length(axis) < 1e-6f) {
+		this->rotation = glm::angleAxis(glm::pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f));
+		return;
+	}
 	float angle = acos(glm::clamp(glm::dot(up, normalizedOrientation), -1.0f, 1.0f));
 	this->rotation = glm::angleAxis(angle, glm::normalize(axis));
+}
+
+glm::quat RadiationSource::getCArmRotation() const
+{
+	// base pose: beam along +Y, which the source reaches from its reference axis -Z by a quarter turn about X
+	const glm::quat base_pose = glm::angleAxis(glm::half_pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f));
+	return this->rotation * glm::inverse(base_pose);
 }
 
 glm::vec3 RadiationSimulation::RadiationSource::drawRayDirection(const UniformRandom& uniform)
@@ -194,6 +206,13 @@ std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> RadiationSimulati
 RadiationSimulation::ConeSourceShape::ConeSourceShape(float opening_angle_deg)
 	: opening_angle_radians(glm::radians(opening_angle_deg))
 {
+}
+
+glm::vec2 RadiationSimulation::ConeSourceShape::getHalfTangents() const
+{
+	// the opening angle is the cone's half angle (see drawRayDirection)
+	const float t = (this->opening_angle_radians < glm::half_pi<float>()) ? std::tan(this->opening_angle_radians) : INFINITY;
+	return glm::vec2(t);
 }
 
 glm::vec3 RadiationSimulation::ConeSourceShape::drawRayDirection(const UniformRandom& uniform)

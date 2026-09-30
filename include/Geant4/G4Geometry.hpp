@@ -32,6 +32,19 @@ namespace RadiationSimulation::Geant4 {
 		std::shared_ptr<G4LogicalVolume> getVolume();
 		const std::pair<glm::vec3, glm::vec3>& getBoundingBox() const;
 		const G4RotationMatrix& getRotation() const { return this->rotation; }
+		/** Turns the placement with the C-arm: the mesh as placed so far (its own transform) is rotated by `c_arm` about
+		* the origin and then moved by `pivot` (G4 length units): the isocentre (zero) for an image detector, the focal
+		* spot for a tube. */
+		void turnWithCArm(const glm::quat& c_arm, const G4ThreeVector& pivot);
+		/** Moves an image detector, placed in the base pose (beam along +Y, before turnWithCArm), along the beam axis:
+		* its entrance face (lowest Y) goes as far from the isocentre as the beam still fits between its X and Z edges,
+		* clamped to [min_distance, max_distance]. `half_tangents` are the beam's (see ISourceShape::getHalfTangents),
+		* lengths in G4 units.
+		* @return The distance of the entrance face from the isocentre.
+		* @throws std::runtime_error if the beam axis misses the detector. */
+		double fitToBeam(double source_distance, const glm::vec2& half_tangents, double min_distance, double max_distance);
+		/** The eight corners of the mesh's bounding box where its placement puts them (G4 length units). */
+		std::vector<G4ThreeVector> placedBoundingBoxCorners() const;
 		double getLengthUnit() const { return this->length_unit; }
 		inline const std::vector<std::shared_ptr<Mesh>>& getChildren() const { return this->children; }
 		/** Materials of this volume and of all its children, each once, as set by the SceneConstructor. */

@@ -186,3 +186,25 @@ TEST(VMFTrainer, CompactSourceAndWideBackgroundStaySeparate) {
 			wide += l.weight;
 	EXPECT_GT(wide, 0.03f);            // the background keeps its own wide lobe(s)
 }
+
+TEST(VMFTrainer, AcceptsMoreThanEightLobes) {
+	G4Random::setTheSeed(11);
+	const glm::vec3 source = glm::normalize(glm::vec3(-0.2f, 0.4f, 1.f));
+	VMFTrainer trainer(1, 20, [](size_t) { return glm::vec3(1.f, 0.f, 0.f); });
+	ASSERT_EQ(trainer.get_lobes(), 20u);
+	size_t pass_length = 1000;
+	for (int pass = 0; pass < 8; pass++, pass_length *= 2) {
+		for (size_t i = 0; i < pass_length; i++)
+			trainer.add(0, sample_vmf(source, 50.0));
+		trainer.m_step();
+	}
+	const std::vector<Lobe> lobes = lobes_of(trainer, 0);
+	ASSERT_EQ(lobes.size(), 20u);
+	float total = 0.f;
+	for (const Lobe& l : lobes)
+		total += l.weight;
+	EXPECT_NEAR(total, 1.f, 1e-5f);
+	EXPECT_GT(glm::dot(lobes[0].mean, source), 0.99f);
+	for (size_t k = 1; k < lobes.size(); k++)
+		EXPECT_GE(lobes[k - 1].weight, lobes[k].weight);
+}

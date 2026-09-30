@@ -89,6 +89,25 @@ G4VPhysicalVolume* Geant4::SceneConstructor::Construct()
 	// the floor itself is not inflated: when nothing exceeds WorldDim, the world equals WorldDim.
 	glm::vec3 half_extent = glm::vec3(this->world_dim.x(), this->world_dim.y(), this->world_dim.z()) / 2.f;
 
+	// meshes that move with the C-arm (image detector, tube) are turned to the pose of this run's tube first
+	const auto source = RadiationSimulation::World::Get()->get_radiation_source();
+	for (const auto& gm : this->g4meshes) {
+		const auto& mesh = gm->getMesh();
+		if (!mesh->isImageDetector() && !mesh->isXRayTube())
+			continue;
+		if (source == nullptr)
+			throw std::runtime_error("Mesh \"" + mesh->getName() + "\" of Type \"" + mesh->getType() + "\" moves with the X-ray tube, but no radiation source is set.");
+		const glm::vec3 focal_spot = source->getLocation() * static_cast<float>(m);
+		if (mesh->isImageDetector() && mesh->getIsocenterDistanceRange().has_value()) {
+			if (source->getShape() == nullptr)
+				throw std::runtime_error("Image detector \"" + mesh->getName() + "\" is fitted to the beam, but the radiation source has no shape.");
+			const glm::vec2 range = mesh->getIsocenterDistanceRange().value();
+			const double distance = gm->fitToBeam(glm::length(focal_spot), source->getShape()->getHalfTangents(), range.x * m, range.y * m);
+			G4cout << "Image detector \"" << mesh->getName() << "\": entrance face " << distance / m << " m from the isocentre" << G4endl;
+		}
+		gm->turnWithCArm(source->getCArmRotation(), mesh->isXRayTube() ? G4ThreeVector(focal_spot.x, focal_spot.y, focal_spot.z) : G4ThreeVector());
+	}
+
 	const float margin = 1.05f;
 	std::function<void(const std::shared_ptr<Geant4::Mesh>&, const glm::vec3&)> grow_to_mesh =
 		[&](const std::shared_ptr<Geant4::Mesh>& gm, const glm::vec3& parent_pos) {
@@ -99,8 +118,15 @@ G4VPhysicalVolume* Geant4::SceneConstructor::Construct()
 			for (const auto& child : gm->getChildren())
 				grow_to_mesh(child, pos);
 		};
-	for (const auto& gm : this->g4meshes)
+	for (const auto& gm : this->g4meshes) {
+		if (gm->getMesh()->isImageDetector() || gm->getMesh()->isXRayTube()) {
+			// turned placements: grow to where the rotated box really lies
+			for (const G4ThreeVector& c : gm->placedBoundingBoxCorners())
+				half_extent = glm::max(half_extent, margin * glm::abs(glm::vec3(c.x(), c.y(), c.z())));
+			continue;
+		}
 		grow_to_mesh(gm, glm::vec3(0.f));
+	}
 
 	if (RadiationSimulation::World::Get()->get_radiation_source() != nullptr) {
 		const glm::vec3 source_pos = RadiationSimulation::World::Get()->get_radiation_source()->getLocation() * static_cast<float>(m);

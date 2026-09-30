@@ -4,6 +4,7 @@
 #include <cmath>
 #include <numbers>
 #include <stdexcept>
+#include <vector>
 
 
 using namespace RadiationSimulation;
@@ -107,8 +108,8 @@ VMFTrainer::VMFTrainer(size_t voxel_count, uint32_t lobes, const std::function<g
 	  current(voxel_count * lobes * STATS_PER_LOBE, 0.0),
 	  previous(voxel_count * lobes * STATS_PER_LOBE, 0.0)
 {
-	if (lobes < 1 || lobes > 8)
-		throw std::invalid_argument("VMFTrainer: the number of lobes must lie in [1, 8]");
+	if (lobes < 1)
+		throw std::invalid_argument("VMFTrainer: at least one lobe is required");
 	for (size_t v = 0; v < voxel_count; v++) {
 		glm::vec3 a = initial_direction(v);
 		a = (glm::length(a) > 0.f) ? glm::normalize(a) : glm::vec3(1.f, 0.f, 0.f);
@@ -116,14 +117,25 @@ VMFTrainer::VMFTrainer(size_t voxel_count, uint32_t lobes, const std::function<g
 		const glm::vec3 b = glm::normalize(glm::cross(a, helper));
 		const glm::vec3 c = glm::cross(a, b);
 		// distinct start directions (identical lobes would never separate in EM): the 6 axes of the voxel's frame,
-		// then the 8 diagonals
+		// then the 8 diagonals, then a Fibonacci spiral in the voxel's frame for any further lobes
 		const float d = 1.f / std::sqrt(3.f);
 		const glm::vec3 seeds[14] = { a, -a, b, -b, c, -c,
 			d * (a + b + c), d * (a + b - c), d * (a - b + c), d * (a - b - c),
 			d * (-a + b + c), d * (-a + b - c), d * (-a - b + c), d * (-a - b - c) };
+		const uint32_t spiral_count = (lobes > 14) ? lobes - 14 : 0;
 		for (uint32_t k = 0; k < lobes; k++) {
 			float* lobe = &this->model[(v * lobes + k) * VALUES_PER_LOBE];
-			const glm::vec3 mean = seeds[k];
+			glm::vec3 mean;
+			if (k < 14) {
+				mean = seeds[k];
+			}
+			else {
+				const uint32_t i = k - 14;
+				const float z = 1.f - (2.f * i + 1.f) / static_cast<float>(spiral_count);
+				const float r = std::sqrt(std::max(0.f, 1.f - z * z));
+				const float phi = static_cast<float>(i) * std::numbers::pi_v<float> * (3.f - std::sqrt(5.f));
+				mean = z * a + r * std::cos(phi) * b + r * std::sin(phi) * c;
+			}
 			lobe[0] = 1.f / static_cast<float>(lobes);
 			lobe[1] = mean.x;
 			lobe[2] = mean.y;
@@ -134,27 +146,29 @@ VMFTrainer::VMFTrainer(size_t voxel_count, uint32_t lobes, const std::function<g
 	}
 }
 
-void VMFTrainer::update_log_norm(size_t voxel)
+void VMFTrainer::update_log_norm(size_t voxel_idx)
 {
 	for (uint32_t k = 0; k < this->lobes; k++) {
-		const float* lobe = &this->model[(voxel * this->lobes + k) * VALUES_PER_LOBE];
-		this->log_norm[voxel * this->lobes + k] = (lobe[0] > 0.f)
+		const float* lobe = &this->model[(voxel_idx * this->lobes + k) * VALUES_PER_LOBE];
+		this->log_norm[voxel_idx * this->lobes + k] = (lobe[0] > 0.f)
 			? static_cast<float>(std::log(static_cast<double>(lobe[0])) + log_vmf_norm(lobe[4]))
 			: -INFINITY;
 	}
 }
 
-void VMFTrainer::add(size_t voxel, const glm::vec3& direction, double weight)
+void VMFTrainer::add(size_t voxel_idx, const glm::vec3& direction, double weight)
 {
 	if (!(weight > 0.0))
 		return;
-	double logp[8];
+	thread_local std::vector<double> logp_buffer;
+	logp_buffer.resize(this->lobes);
+	double* logp = logp_buffer.data();
 	double max_logp = -INFINITY;
-	const float* model = &this->model[voxel * this->lobes * VALUES_PER_LOBE];
+	const float* model = &this->model[voxel_idx * this->lobes * VALUES_PER_LOBE];
 	for (uint32_t k = 0; k < this->lobes; k++) {
 		const float* lobe = model + k * VALUES_PER_LOBE;
 		const double cosine = lobe[1] * direction.x + lobe[2] * direction.y + lobe[3] * direction.z;
-		logp[k] = this->log_norm[voxel * this->lobes + k] + lobe[4] * (cosine - 1.0);
+		logp[k] = this->log_norm[voxel_idx * this->lobes + k] + lobe[4] * (cosine - 1.0);
 		max_logp = std::max(max_logp, logp[k]);
 	}
 	if (!std::isfinite(max_logp))
@@ -164,7 +178,7 @@ void VMFTrainer::add(size_t voxel, const glm::vec3& direction, double weight)
 		logp[k] = std::exp(logp[k] - max_logp);
 		sum += logp[k];
 	}
-	double* stats = &this->current[voxel * this->lobes * STATS_PER_LOBE];
+	double* stats = &this->current[voxel_idx * this->lobes * STATS_PER_LOBE];
 	for (uint32_t k = 0; k < this->lobes; k++) {
 		const double r = weight * logp[k] / sum;
 		stats[k * STATS_PER_LOBE + 0] += r;
@@ -218,12 +232,12 @@ void VMFTrainer::m_step()
 	this->passes++;
 }
 
-void VMFTrainer::write_lobes(size_t voxel, float* out) const
+void VMFTrainer::write_lobes(size_t voxel_idx, float* out) const
 {
-	double stats[8 * STATS_PER_LOBE];
+	std::vector<double> stats(this->lobes * STATS_PER_LOBE);
 	double total = 0.0;
 	for (size_t i = 0; i < this->lobes * STATS_PER_LOBE; i++) {
-		stats[i] = this->current[voxel * this->lobes * STATS_PER_LOBE + i] + this->previous[voxel * this->lobes * STATS_PER_LOBE + i];
+		stats[i] = this->current[voxel_idx * this->lobes * STATS_PER_LOBE + i] + this->previous[voxel_idx * this->lobes * STATS_PER_LOBE + i];
 		if (i % STATS_PER_LOBE == 0)
 			total += stats[i];
 	}
@@ -231,20 +245,20 @@ void VMFTrainer::write_lobes(size_t voxel, float* out) const
 		std::fill(out, out + this->lobes * VALUES_PER_LOBE, 0.f);
 		return;
 	}
-	this->fit(stats, &this->model[voxel * this->lobes * VALUES_PER_LOBE], out, true);
+	this->fit(stats.data(), &this->model[voxel_idx * this->lobes * VALUES_PER_LOBE], out, true);
 
 	// canonical slots for datasets: strongest lobe first, unused (weight 0) slots all zero
-	float sorted[8 * VALUES_PER_LOBE];
-	uint32_t order[8];
+	std::vector<float> sorted(this->lobes * VALUES_PER_LOBE);
+	std::vector<uint32_t> order(this->lobes);
 	for (uint32_t k = 0; k < this->lobes; k++)
 		order[k] = k;
-	std::stable_sort(order, order + this->lobes, [out](uint32_t a, uint32_t b) { return out[a * VALUES_PER_LOBE] > out[b * VALUES_PER_LOBE]; });
+	std::stable_sort(order.begin(), order.end(), [out](uint32_t a, uint32_t b) { return out[a * VALUES_PER_LOBE] > out[b * VALUES_PER_LOBE]; });
 	for (uint32_t k = 0; k < this->lobes; k++) {
 		const float* lobe = out + order[k] * VALUES_PER_LOBE;
 		if (lobe[0] > 0.f)
-			std::copy(lobe, lobe + VALUES_PER_LOBE, sorted + k * VALUES_PER_LOBE);
+			std::copy(lobe, lobe + VALUES_PER_LOBE, sorted.begin() + k * VALUES_PER_LOBE);
 		else
-			std::fill(sorted + k * VALUES_PER_LOBE, sorted + (k + 1) * VALUES_PER_LOBE, 0.f);
+			std::fill(sorted.begin() + k * VALUES_PER_LOBE, sorted.begin() + (k + 1) * VALUES_PER_LOBE, 0.f);
 	}
-	std::copy(sorted, sorted + this->lobes * VALUES_PER_LOBE, out);
+	std::copy(sorted.begin(), sorted.end(), out);
 }

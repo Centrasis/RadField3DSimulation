@@ -7,6 +7,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <string>
 #include <memory>
+#include <optional>
 #include "Collisions.h"
 
 
@@ -56,6 +57,13 @@ namespace RadiationSimulation::Geometry {
 		static constexpr const char* DEFAULT_TYPE = "unknown";
 		/// Type marking the patient. At most one mesh of a scene may have it.
 		static constexpr const char* PATIENT_TYPE = "patient";
+		/** Type of meshes that turn with the C-arm like an image detector: modelled for the base pose of the tube (below
+		* the isocentre, beam along +Y), they are rotated about the isocentre with the tube, so they stay on the side
+		* opposite the tube at their modelled distance, facing the beam. */
+		static constexpr const char* IMAGE_DETECTOR_TYPE = "imagedetector";
+		/** Type of meshes that move with the X-ray tube: modelled around the focal spot at the origin in the base pose
+		* (beam along +Y), they are rotated like the tube and moved to its focal spot. */
+		static constexpr const char* XRAY_TUBE_TYPE = "xraytube";
 		/// Types name layers of the stored geometry channel, whose names hold at most this many characters.
 		static constexpr size_t MAX_TYPE_LENGTH = 63;
 	protected:
@@ -67,13 +75,9 @@ namespace RadiationSimulation::Geometry {
 		glm::vec3 position = glm::vec3(0.f);
 		glm::vec3 scale    = glm::vec3(1.f);
 		std::string type = Mesh::DEFAULT_TYPE;
-		struct {
-			bool bis_source = false;
-			float concentric_distance = 0.f;
-			glm::vec2 rotation_offset_radians = glm::vec2(0.f);
-		} source_info;
 		std::pair<glm::vec3, glm::vec3> bounding_box = { glm::vec3(0.f), glm::vec3(0.f) };
 		std::vector<std::shared_ptr<Mesh>> children;
+		std::optional<glm::vec2> isocenter_distance_range;
 
 	public:
 		Mesh(const std::vector<glm::vec3>& vertices, const std::vector<Face*>& faces, const std::string& name);
@@ -103,14 +107,14 @@ namespace RadiationSimulation::Geometry {
 
 		inline const bool isPatient() const { return this->type == Mesh::PATIENT_TYPE; };
 
-		inline const bool isSource() const { return this->source_info.bis_source; };
-		inline const float getSourceConcentricDistance() const { return this->source_info.concentric_distance; };
-		const glm::vec2& getSourceRotationOffset() const { return this->source_info.rotation_offset_radians; };
-		inline void markAsSource(float concentric_distance, const glm::vec2& rotation_offset_radians) {
-			this->source_info.bis_source = true;
-			this->source_info.concentric_distance = concentric_distance;
-			this->source_info.rotation_offset_radians = rotation_offset_radians;
-		};
+		inline const bool isImageDetector() const { return this->type == Mesh::IMAGE_DETECTOR_TYPE; };
+		inline const bool isXRayTube() const { return this->type == Mesh::XRAY_TUBE_TYPE; };
+
+		/** Distance range (min, max) in metres of an image detector's entrance face from the isocentre. When set, the
+		* detector is not kept at its modelled distance but moved as far out as the beam still fits on it (never
+		* spilling past its edges), within this range. Unset: the modelled distance is kept. */
+		inline const std::optional<glm::vec2>& getIsocenterDistanceRange() const { return this->isocenter_distance_range; }
+		inline void setIsocenterDistanceRange(const glm::vec2& range) { this->isocenter_distance_range = range; }
 
 		const std::string& getName() const;
 

@@ -68,6 +68,16 @@ void SetupMesh(json& mesh_desc, std::shared_ptr<Mesh> mesh, const std::map<std::
         mesh->setType(parent_type);
     }
 
+    if (mesh_desc.find("IsocenterDistance") != mesh_desc.end()) {
+        if (!mesh->isImageDetector() || !parent_type.empty())
+            throw std::runtime_error("Mesh \"" + mesh->getName() + "\": \"IsocenterDistance\" is only allowed on root meshes of Type \"ImageDetector\".");
+        auto& info = mesh_desc["IsocenterDistance"];
+        const glm::vec2 range(info["Min"].get<float>(), info["Max"].get<float>());
+        if (!(range.x >= 0.f && range.x <= range.y))
+            throw std::runtime_error("Mesh \"" + mesh->getName() + "\": \"IsocenterDistance\" needs 0 <= Min <= Max.");
+        mesh->setIsocenterDistanceRange(range);
+    }
+
     if (mesh_desc.find("MaterialName") != mesh_desc.end()) {
 		std::string material_name = mesh_desc["MaterialName"].get<std::string>();
 		mesh->attachMaterialName(material_name);
@@ -82,20 +92,8 @@ void SetupMesh(json& mesh_desc, std::shared_ptr<Mesh> mesh, const std::map<std::
         }
     }
 
-    if (mesh_desc.find("Source") != mesh_desc.end() && mesh_desc["Source"] == true) {
-		if (mesh_desc.find("SourceOffsets") == mesh_desc.end()) {
-			throw std::runtime_error("Source mesh with name: \"" + mesh->getName() + "\" must have SourceOffsets defined!");
-		}
-
-		auto& source_offsets_info = mesh_desc["SourceOffsets"];
-		auto& translation_info = source_offsets_info["Translation"];
-		auto& rotation_info = source_offsets_info["Rotation"];
-
-        mesh->markAsSource(
-            translation_info["ConcentricDistance"].get<float>(),
-            glm::vec2(rotation_info["Phi"].get<float>(), rotation_info["Theta"].get<float>())
-        );
-    }
+    if (mesh_desc.find("Source") != mesh_desc.end())
+        throw std::runtime_error("Mesh \"" + mesh->getName() + "\": \"Source\"/\"SourceOffsets\" are no longer supported; give meshes that move with the C-arm the Type \"ImageDetector\" or \"XRayTube\".");
 }
 
 std::vector<std::shared_ptr<Mesh>> GeometryLoader::Load(const std::string& path, std::string description_file)

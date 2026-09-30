@@ -16,6 +16,7 @@ namespace fs = std::experimental::filesystem;
 #include <vector>
 #include <algorithm>
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/constants.hpp>
 
 namespace {
 	const RadiationSimulation::UniformRandom uniform = [] { return G4UniformRand(); };
@@ -436,4 +437,36 @@ namespace {
 		EXPECT_THROW(RadiationSimulation::EllipsoidSourceShape(glm::vec2(0.f, 10.f)), std::invalid_argument);
 		EXPECT_THROW(RadiationSimulation::EllipsoidSourceShape(glm::vec2(10.f, 90.f)), std::invalid_argument);
 	}
+}
+
+TEST(CArmRotation, TurnsTheBasePoseOntoTheBeam) {
+	RadiationSimulation::XRaySource source(60e3f, std::make_unique<RadiationSimulation::RectangleSourceShape>(glm::vec2(0.2f), 1.f));
+	// base pose: tube below the isocentre, beam along +Y — no turn
+	source.setTransform(glm::vec3(0.f, -0.6f, 0.f), glm::vec3(0.f, 1.f, 0.f));
+	const glm::quat base = source.getCArmRotation();
+	EXPECT_NEAR(glm::angle(glm::normalize(base)), 0.f, 1e-5f);
+	// any pose (the angles RadField3D samples): +Y goes onto the beam, and the field's own axes turn the same way
+	for (float phi : { 0.f, 30.f, 135.f, 270.f }) {
+		for (float theta : { 0.f, 45.f, 90.f, 150.f, 180.f }) {
+			const glm::quat angles = glm::angleAxis(glm::radians(theta), glm::vec3(1.f, 0.f, 0.f)) * glm::angleAxis(glm::radians(phi), glm::vec3(0.f, 1.f, 0.f));
+			const glm::vec3 dir = angles * glm::vec3(0.f, 0.f, -1.f);
+			source.setTransform(-dir * 0.6f, dir);
+			const glm::quat c = source.getCArmRotation();
+			ASSERT_TRUE(std::isfinite(c.w) && std::isfinite(c.x) && std::isfinite(c.y) && std::isfinite(c.z)) << phi << " " << theta;
+			EXPECT_NEAR(glm::dot(c * glm::vec3(0.f, 1.f, 0.f), dir), 1.f, 1e-5f) << phi << " " << theta;
+		}
+	}
+}
+
+TEST(SourceShapes, HalfTangentsGiveTheBeamHalfSizeAtUnitDistance) {
+	const glm::vec2 rect = RadiationSimulation::RectangleSourceShape(glm::vec2(0.2f, 0.1f), 0.785f).getHalfTangents();
+	EXPECT_NEAR(rect.x, 0.1f / 0.785f, 1e-6f);
+	EXPECT_NEAR(rect.y, 0.05f / 0.785f, 1e-6f);
+	const glm::vec2 cone = RadiationSimulation::ConeSourceShape(10.f).getHalfTangents();
+	EXPECT_NEAR(cone.x, std::tan(glm::radians(10.f)), 1e-6f);
+	EXPECT_EQ(cone.x, cone.y);
+	EXPECT_TRUE(std::isinf(RadiationSimulation::ConeSourceShape(90.f).getHalfTangents().x));
+	const glm::vec2 ellipse = RadiationSimulation::EllipsoidSourceShape(glm::vec2(10.f, 20.f)).getHalfTangents();
+	EXPECT_NEAR(ellipse.x, std::tan(glm::radians(10.f)), 1e-6f);
+	EXPECT_NEAR(ellipse.y, std::tan(glm::radians(20.f)), 1e-6f);
 }

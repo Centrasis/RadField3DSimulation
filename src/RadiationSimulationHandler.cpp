@@ -67,44 +67,6 @@ void RadiationSimulation::Geant4::RadiationSimulationHandler::finalize()
 			//this->G4mgr->ReinitializeGeometry();
 		}
 		else {
-			const glm::vec3 source_position = RadiationSimulation::World::Get()->get_radiation_source()->getLocation();
-			const float source_center_distance = glm::length(source_position);
-			const glm::vec3 source_dir = glm::normalize(-source_position);  // Note: negative because source points towards center
-			
-			// Calculate spherical angles from the source direction (matching RadField3D.cpp convention)
-			float source_angle_alpha = -atan2(source_dir.x, source_dir.z);   // azimuth around Y-axis
-			if (source_dir.z < 0.f) {
-				source_angle_alpha -= glm::pi<float>();
-			}
-			
-			// Calculate beta with quadrant correction
-			float source_angle_beta = -atan2(source_dir.y, sqrt(source_dir.x * source_dir.x + source_dir.z * source_dir.z));
-			if (source_dir.z >= 0.f) {
-				source_angle_beta -= glm::pi<float>() / 2.f;
-			}
-			
-			// Recreate the exact rotation quaternion from RadField3D.cpp
-			glm::quat original_source_rotation = glm::angleAxis(source_angle_alpha, glm::vec3(0.f, 1.f, 0.f)) * glm::angleAxis(source_angle_beta, glm::vec3(1.f, 0.f, 0.f));
-			
-			for (auto& m : this->meshes) {
-				if (m->isSource()) {
-					const glm::quat m_rot = m->getRotation();
-					glm::vec2 m_rot_offset_radians = m->getSourceRotationOffset();
-					glm::quat m_rot_offset = glm::angleAxis(m_rot_offset_radians.x, glm::vec3(0.f, 1.f, 0.f)) * glm::angleAxis(m_rot_offset_radians.y, glm::vec3(1.f, 0.f, 0.f));
-					const glm::vec3 m_pos = m->getPosition();
-
-					m->setRotation(
-						m_rot * original_source_rotation
-					);
-					if (glm::length(m_pos) != 0.f) {
-						m->setPosition(m_pos + glm::normalize(-m_pos) * (source_center_distance + m->getSourceConcentricDistance()));
-					}
-					else {
-						m->setPosition(glm::normalize(-source_position) * (source_center_distance + m->getSourceConcentricDistance()));
-					}
-				}
-			}
-
 			this->G4mgr->SetUserInitialization(new Geant4::SceneConstructor(this->meshes));
 		}
 	}

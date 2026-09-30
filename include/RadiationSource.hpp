@@ -29,6 +29,12 @@ namespace RadiationSimulation {
 		 * @return The direction of the ray as a glm::vec3.
 		 */
 		virtual glm::vec3 drawRayDirection(const UniformRandom& uniform) = 0;
+
+		/**
+		 * @brief Half size of the beam at unit distance from the focal spot, along the source frame's x and y axes
+		 * (the tangents of the half opening angles). Infinite for beams opening 90 degrees or more.
+		 */
+		virtual glm::vec2 getHalfTangents() const = 0;
 	};
 
 	/**
@@ -50,6 +56,8 @@ namespace RadiationSimulation {
 		 * @return The direction of the ray as a glm::vec3.
 		 */
 		virtual glm::vec3 drawRayDirection(const UniformRandom& uniform) override;
+
+		virtual glm::vec2 getHalfTangents() const override;
 
 		float getOpeningAngleDegrees() const { return glm::degrees(this->opening_angle_radians); }
 	};
@@ -78,6 +86,8 @@ namespace RadiationSimulation {
 		 */
 		virtual glm::vec3 drawRayDirection(const UniformRandom& uniform) override;
 
+		virtual glm::vec2 getHalfTangents() const override { return this->size / (2.f * this->distance); }
+
 		glm::vec2 getFieldSizeMeters() const { return this->size; }
 	};
 
@@ -105,6 +115,8 @@ namespace RadiationSimulation {
 		 * @return The direction of the ray as a glm::vec3.
 		 */
 		virtual glm::vec3 drawRayDirection(const UniformRandom& uniform) override;
+
+		virtual glm::vec2 getHalfTangents() const override { return glm::vec2(this->tan_half_angles); }
 
 		glm::vec2 getOpeningAnglesDegrees() const { return this->half_angles_degrees; }
 	};
@@ -158,6 +170,13 @@ namespace RadiationSimulation {
 		 * @return The transformation matrix.
 		 */
 		inline const glm::quat& getRotation() const { return this->rotation; }
+
+		/**
+		 * @brief Rotation of the tube (and with it the C-arm) from its base pose: below the isocentre, beam along +Y
+		 * (the pose of --source-theta 90 --source-phi 0). Uses the rotation that orients the beam and its collimated
+		 * field, so meshes turned with it stay aligned with the field.
+		 */
+		glm::quat getCArmRotation() const;
 
 		/**
 		 * @brief Draws a ray direction.

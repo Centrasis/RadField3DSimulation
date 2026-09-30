@@ -23,14 +23,14 @@ namespace RadiationSimulation {
 
 		/**
 		* @param voxel_count Number of voxels.
-		* @param lobes Lobes per voxel (1..8).
+		* @param lobes Lobes per voxel (at least 1).
 		* @param initial_direction Unit vector for the first lobe of a voxel before any training (e.g. away from the
 		*        isocentre); the other lobes start opposite and perpendicular to it, all wide.
 		*/
 		VMFTrainer(size_t voxel_count, uint32_t lobes, const std::function<glm::vec3(size_t)>& initial_direction);
 
 		/** Adds one scored direction of travel (unit vector) to a voxel, with a weight (e.g. the path length in the voxel). */
-		void add(size_t voxel, const glm::vec3& direction, double weight = 1.0);
+		void add(size_t voxel_idx, const glm::vec3& direction, double weight = 1.0);
 
 		/** Fits new lobes from the finished pass and starts the next one. */
 		void m_step();
@@ -39,7 +39,7 @@ namespace RadiationSimulation {
 		* Always all `lobes` slots, so every field shares the same layout: sorted by weight (strongest first), unused
 		* slots (weight 0) and voxels without any scored direction all zero.
 		*/
-		void write_lobes(size_t voxel, float* out) const;
+		void write_lobes(size_t voxel_idx, float* out) const;
 
 		uint32_t get_lobes() const { return this->lobes; }
 		size_t get_passes() const { return this->passes; }
@@ -56,6 +56,6 @@ namespace RadiationSimulation {
 		std::vector<double> previous;
 
 		void fit(const double* stats, const float* fallback, float* out, bool merge) const;
-		void update_log_norm(size_t voxel);
+		void update_log_norm(size_t voxel_idx);
 	};
 }

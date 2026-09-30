@@ -371,6 +371,9 @@ if(BUILD_TESTS)
   add_executable(PatientScoringTest ${PROJECT_SOURCE_DIR}/targets/test/PatientScoringTest.cpp)
   link_test_target(PatientScoringTest)
 
+  add_executable(CArmPlacementTest ${PROJECT_SOURCE_DIR}/targets/test/CArmPlacementTest.cpp)
+  link_test_target(CArmPlacementTest)
+
   add_executable(GeometryLoaderTest ${PROJECT_SOURCE_DIR}/targets/test/GeometryLoaderTest.cpp)
   link_test_target(GeometryLoaderTest)
 
@@ -392,6 +395,7 @@ if(BUILD_TESTS)
   set_target_properties(VoxelizationTest PROPERTIES FOLDER "Tests")
   set_target_properties(GeometryChannelTest PROPERTIES FOLDER "Tests")
   set_target_properties(PatientScoringTest PROPERTIES FOLDER "Tests")
+  set_target_properties(CArmPlacementTest PROPERTIES FOLDER "Tests")
   set_target_properties(GeometryLoaderTest PROPERTIES FOLDER "Tests")
   set_target_properties(FieldAppendTest PROPERTIES FOLDER "Tests")
   set_target_properties(SpectrumSamplingTest PROPERTIES FOLDER "Tests")

@@ -67,12 +67,15 @@ void store_radiation_field(std::shared_ptr<radfiled3d::IRadiationField> field, f
 
 	const RadiationSimulation::ISourceShape* actual_field_shape = source->getShape();
 	XRaySpectrumSource* spectrum_source = dynamic_cast<XRaySpectrumSource*>(source.get());
-	// counted in 64 bit; float only rounds large counts here, it does not clip them
-	const std::vector<uint64_t> generated_counts = spectrum_source->getGeneratedCounts();
-	metadata->set_dynamic_custom_metadata<radfiled3d::HistogramVoxel<float>>("tube_spectrum", radfiled3d::HistogramVoxel<float>(generated_counts.size(), spectrum_source->getGeneratedSpectrumBinWidth_eV(), nullptr));
-	auto tube_spectrum = metadata->get_dynamic_metadata<radfiled3d::HistogramVoxel<float>>("tube_spectrum").get_histogram();
-	for (size_t i = 0; i < generated_counts.size(); i++)
-		tube_spectrum[i] = static_cast<float>(generated_counts[i]);
+	// a monoenergetic source (--max-energy without --spectrum) has no tube spectrum to store
+	if (spectrum_source != nullptr) {
+		// counted in 64 bit; float only rounds large counts here, it does not clip them
+		const std::vector<uint64_t> generated_counts = spectrum_source->getGeneratedCounts();
+		metadata->set_dynamic_custom_metadata<radfiled3d::HistogramVoxel<float>>("tube_spectrum", radfiled3d::HistogramVoxel<float>(generated_counts.size(), spectrum_source->getGeneratedSpectrumBinWidth_eV(), nullptr));
+		auto tube_spectrum = metadata->get_dynamic_metadata<radfiled3d::HistogramVoxel<float>>("tube_spectrum").get_histogram();
+		for (size_t i = 0; i < generated_counts.size(); i++)
+			tube_spectrum[i] = static_cast<float>(generated_counts[i]);
+	}
 	uint64_t duration = end_time - start_time;
 	metadata->add_dynamic_metadata<uint64_t>("simulation_duration_s", duration);
 	metadata->add_dynamic_metadata<uint8_t>("xray_field_shape", static_cast<uint8_t>(field_shape));

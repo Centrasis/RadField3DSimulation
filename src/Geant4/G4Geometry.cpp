@@ -4,6 +4,7 @@
 #include <G4PVPlacement.hh>
 #include <G4Material.hh>
 #include <G4SystemOfUnits.hh>
+#include <glm/gtc/quaternion.hpp>
 #include <algorithm>
 #include <chrono>
 #include <map>
@@ -114,6 +115,64 @@ Geant4::Mesh::Mesh(std::shared_ptr<Geometry::Mesh> mesh, double length_unit)
 		// NON-OWNING: Geant4::Mesh is a G4TessellatedSolid (G4SolidStore-owned) — an owning shared_ptr double-frees.
 		this->children.push_back(std::shared_ptr<Geant4::Mesh>(new Geant4::Mesh(child, length_unit), [](Geant4::Mesh*) {}));
 	}
+}
+
+namespace {
+	G4RotationMatrix to_rotation_matrix(const glm::quat& q)
+	{
+		const glm::quat n = glm::normalize(q);
+		const double angle = glm::angle(n);
+		if (angle < 1e-12)
+			return G4RotationMatrix();
+		const glm::vec3 axis = glm::axis(n);
+		G4RotationMatrix r;
+		r.rotate(angle, G4ThreeVector(axis.x, axis.y, axis.z));
+		return r;
+	}
+}
+
+void Geant4::Mesh::turnWithCArm(const glm::quat& c_arm, const G4ThreeVector& pivot)
+{
+	// G4PVPlacement takes the rotation of the frame, the inverse of the rotation applied to the mesh
+	const G4RotationMatrix turn = to_rotation_matrix(c_arm);
+	const G4RotationMatrix object_rotation = turn * this->rotation.inverse();
+	this->rotation = object_rotation.inverse();
+	this->position = pivot + turn * this->position;
+}
+
+double Geant4::Mesh::fitToBeam(double source_distance, const glm::vec2& half_tangents, double min_distance, double max_distance)
+{
+	double entrance = INFINITY;
+	double x_lo = INFINITY, x_hi = -INFINITY, z_lo = INFINITY, z_hi = -INFINITY;
+	for (const G4ThreeVector& c : this->placedBoundingBoxCorners()) {
+		entrance = std::min(entrance, c.y());
+		x_lo = std::min(x_lo, c.x());
+		x_hi = std::max(x_hi, c.x());
+		z_lo = std::min(z_lo, c.z());
+		z_hi = std::max(z_hi, c.z());
+	}
+	// the beam axis is the Y axis; the edge nearest to it limits the beam
+	const double reach_x = std::min(x_hi, -x_lo);
+	const double reach_z = std::min(z_hi, -z_lo);
+	if (!(reach_x > 0.0 && reach_z > 0.0))
+		throw std::runtime_error("Image detector \"" + this->mesh->getName() + "\": the beam axis does not cross it in the base pose, so it cannot be fitted to the beam.");
+	// the base pose maps the source frame's x onto X and its y onto Z, so the collimator's edges run along the detector's
+	const double fit = std::min(reach_x / half_tangents.x, reach_z / half_tangents.y) - source_distance;
+	const double distance = std::clamp(fit, min_distance, max_distance);
+	this->position.setY(this->position.y() + distance - entrance);
+	return distance;
+}
+
+std::vector<G4ThreeVector> Geant4::Mesh::placedBoundingBoxCorners() const
+{
+	const auto& [lo, hi] = this->mesh->bounding_box;
+	const G4RotationMatrix object_rotation = this->rotation.inverse();
+	std::vector<G4ThreeVector> corners;
+	for (int i = 0; i < 8; i++) {
+		const G4ThreeVector local((i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z);
+		corners.push_back(object_rotation * local + this->position);
+	}
+	return corners;
 }
 
 void Geant4::Mesh::place(G4LogicalVolume* parent)

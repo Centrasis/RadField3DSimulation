@@ -158,6 +158,12 @@ With `mesh_name` and `child_name_name` name being the name of the mesh as export
 
 `Type` is a freely assignable category of the mesh, e.g. `"Patient"`, `"Shield"` or `"Table"`. Types are matched case-insensitively and stored in lower case (`"Shield"` and `"SHIELD"` are the same type `shield`) and may have at most 63 characters. A mesh without a `Type` takes the type of its parent (recursively), a root mesh without one is of type `unknown`; a child with its own `Type` is a separate type. At most one mesh may declare the type `patient`; its translation is what the DatasetGenerator records as the patient translation. Descriptions using the former boolean `"Patient": true` are still read as `"Type": "Patient"` (`"Patient": false` declares no type).
 
+Two types are reserved for meshes on the C-arm and are turned with the beam for every field. Model them in the base pose: tube under the table, beam pointing up along +Y, which is `phi = 0°`, `theta = 90°`.
+- **`"ImageDetector"`** is modelled relative to the isocentre, e.g. a detector plate above the table. It keeps its distance to the isocentre, stays opposite the tube and faces the beam. With `"IsocenterDistance": { "Min": 0.45, "Max": 0.62 }` its distance follows the collimation instead: its entrance face moves as far out as the beam still fits on it, within these limits (metres). Small fields leave the plate partly unlit at `Max`; keep the collimation small enough that the beam fits at `Min`.
+- **`"XRayTube"`** is modelled around the focal spot placed at the origin, e.g. a tube housing or collimator. It moves with the focal spot.
+
+The former `Source`/`SourceOffsets` keys are no longer supported.
+
 #### Voxelized geometry
 Before the simulation starts, RadField3D voxelizes the placed geometry onto the grid of the radiation field and stores it as the channel `geometry` of the `.rf3` file. Every mesh type gets its own 8-bit layer named like the (lower-case) type, e.g. `patient`, holding `255` where a voxel overlaps any mesh of that type and `0` elsewhere; all meshes of one type share their layer. A voxel counts as overlapping when a part of it with non-zero volume lies inside the mesh, so meshes thinner than a voxel (e.g. shields) are still marked. Meshes must be closed up to gaps smaller than a voxel.
 The geometry is written once when the file is created; later saves (auto-saves or `--append` runs) only update the radiation channels and the metadata and keep the stored geometry.
@@ -251,7 +257,7 @@ For a `rectangle` source, `source_opening_angle` is the pair of beam extents in 
 - `"range": [[0.05, 0.05], [0.20, 0.20]]` — sample x and y independently within 5–20 cm.
 - `"range": [[0.05, 0.10], [0.20, 0.15]]` — an asymmetric range: x within 5–20 cm, y within 10–15 cm.
 
-Patient/object motion is sampled per field via a top-level `GeometryTransformations` block that gives per-axis `Translation`/`Rotation`/`Scale` ranges for a named object in the geometry's `.desc`, e.g. `{ "Patient": { "Translation": { "Y": [-0.5, 0.5] } } }`.
+Patient/object motion is sampled per field via a top-level `GeometryTransformations` block. A group moves several meshes rigidly by one sampled offset, e.g. patient and table: `{ "patient_on_table": { "Meshes": ["patient", "HardDesk"], "Translation": { "X": [-0.2, 0.2], "Y": [-0.285, -0.04], "Z": [-0.7, 0.7] } } }`; an entry named after a single mesh sets per-axis `Translation`/`Rotation`/`Scale` ranges for that mesh, e.g. `{ "patient": { "Translation": { "Z": [-0.5, 0.5] } } }`. See `example/dataset_ds_04.json` with `example/DS04-Angio.obj/.desc`.
 
 An optional post-simulation step is configured from `Metaparameters`: `"JoinChannels": true` merges the `direct_beam` and `scatter_field` channels into one per-primary field to roughly halve the stored size (see the `join_channels` generator option above). The stored field size is set directly by `WorldDim` / `VoxelSize` (e.g. `WorldDim [1.28, 1.28, 1.28]` at `VoxelSize 0.02` gives 64³); the geometry may be larger than the world.
 

@@ -92,3 +92,28 @@ TEST(GeometryLoader, TypeMustFitALayerName) {
 	const std::string empty = write_scene("rf3_empty_type", { "a" }, R"({ "a": { "Type": "" } })");
 	EXPECT_THROW(GeometryLoader::Load(empty), std::runtime_error);
 }
+
+TEST(GeometryLoader, IsocenterDistanceOnlyOnRootImageDetectors) {
+	const std::string obj = write_scene("rf3_detector_range", { "plate", "housing" }, R"({
+		"plate": { "Type": "ImageDetector", "IsocenterDistance": { "Min": 0.45, "Max": 0.62 } },
+		"housing": { "Type": "XRayTube" }
+	})");
+	const auto meshes = GeometryLoader::Load(obj);
+	for (const auto& mesh : meshes) {
+		if (mesh->getName() == "plate") {
+			ASSERT_TRUE(mesh->getIsocenterDistanceRange().has_value());
+			EXPECT_FLOAT_EQ(mesh->getIsocenterDistanceRange()->x, 0.45f);
+			EXPECT_FLOAT_EQ(mesh->getIsocenterDistanceRange()->y, 0.62f);
+		}
+		else {
+			EXPECT_FALSE(mesh->getIsocenterDistanceRange().has_value());
+		}
+	}
+
+	const std::string on_tube = write_scene("rf3_tube_range", { "a" }, R"({ "a": { "Type": "XRayTube", "IsocenterDistance": { "Min": 0.4, "Max": 0.6 } } })");
+	EXPECT_THROW(GeometryLoader::Load(on_tube), std::runtime_error);
+	const std::string on_child = write_scene("rf3_child_range", { "a", "b" }, R"({ "a": { "Type": "ImageDetector", "Children": { "b": { "IsocenterDistance": { "Min": 0.4, "Max": 0.6 } } } } })");
+	EXPECT_THROW(GeometryLoader::Load(on_child), std::runtime_error);
+	const std::string reversed = write_scene("rf3_reversed_range", { "a" }, R"({ "a": { "Type": "ImageDetector", "IsocenterDistance": { "Min": 0.6, "Max": 0.4 } } })");
+	EXPECT_THROW(GeometryLoader::Load(reversed), std::runtime_error);
+}
