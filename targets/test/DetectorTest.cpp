@@ -1,6 +1,6 @@
 #include "gtest/gtest.h"
 #include <Geant4/G4RadiationFieldDetector.hpp>
-#include <RadFiled3D/RadiationField.hpp>
+#include <radfiled3d/radiation_field.hpp>
 #include <G4RunManager.hh>
 #include <G4VUserPhysicsList.hh>
 #include <G4Geantino.hh>
@@ -37,9 +37,9 @@ TEST(NormalizedFieldCopy, WorksWithoutAngularFlux) {
 	// The periodic auto-save path: must not throw when no angular resolution was requested
 	// (the angular_flux layer does not exist then).
 	Geant4::RadiationFieldDetector det(glm::vec3(0.4f), glm::vec3(0.02f), 32, 150000.0 / 32.0);
-	std::shared_ptr<RadFiled3D::IRadiationField> copy;
+	std::shared_ptr<radfiled3d::IRadiationField> copy;
 	ASSERT_NO_THROW(copy = det.get_normalized_field_copy());
-	auto cart = std::dynamic_pointer_cast<RadFiled3D::CartesianRadiationField>(copy);
+	auto cart = std::dynamic_pointer_cast<radfiled3d::CartesianRadiationField>(copy);
 	ASSERT_NE(cart, nullptr);
 	for (const char* channel : {"scatter_field", "direct_beam"}) {
 		auto ch = cart->get_channel(channel);
@@ -62,7 +62,7 @@ TEST(FieldDimensions, VoxelCountsSurviveFloatTruncation) {
 	// this truncates to 22 voxels per axis. The user's production case 2.3 m / 0.02 m (= exactly
 	// 115.0f) is safe either way; this pins the guard for the ratios that are not.
 	Geant4::RadiationFieldDetector det(glm::vec3(2.3f), glm::vec3(0.1f), 8, 150000.0 / 8.0);
-	auto copy = std::dynamic_pointer_cast<RadFiled3D::CartesianRadiationField>(det.get_normalized_field_copy());
+	auto copy = std::dynamic_pointer_cast<radfiled3d::CartesianRadiationField>(det.get_normalized_field_copy());
 	ASSERT_NE(copy, nullptr);
 	EXPECT_EQ(copy->get_voxel_counts().x, 23u);
 	EXPECT_EQ(copy->get_voxel_counts().y, 23u);

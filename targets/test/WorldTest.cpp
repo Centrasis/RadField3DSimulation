@@ -4,7 +4,7 @@
 #include <iostream>
 #include <G4ios.hh>
 #include <chrono>
-#include <RadFiled3D/storage/RadiationFieldStore.hpp>
+#include <radfiled3d/storage/radiation_field_store.hpp>
 #include "World.hpp"
 
 
@@ -29,11 +29,11 @@ int main() {
 
 	size_t count = 0;
 
-	std::shared_ptr<RadFiled3D::Storage::V1::RadiationFieldMetadata> metadata = std::make_shared<RadFiled3D::Storage::V1::RadiationFieldMetadata>();
+	std::shared_ptr<radfiled3d::storage::v1::RadiationFieldMetadata> metadata = std::make_shared<radfiled3d::storage::v1::RadiationFieldMetadata>();
 	while (count < 100) {
-		std::shared_ptr<RadFiled3D::IRadiationField> test_field = RadiationSimulator::simulate_radiation_field();
-		RadFiled3D::Storage::FieldStore::store(test_field, metadata, "./test.rf");
-		auto test_field_loaded = RadFiled3D::Storage::FieldStore::load("./test.rf");
+		std::shared_ptr<radfiled3d::IRadiationField> test_field = RadiationSimulator::simulate_radiation_field();
+		radfiled3d::storage::FieldStore::store(test_field, metadata, "./test.rf");
+		auto test_field_loaded = radfiled3d::storage::FieldStore::load("./test.rf");
 
 		count++;
 	}

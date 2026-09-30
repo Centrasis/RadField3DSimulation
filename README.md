@@ -54,6 +54,8 @@ cmake --build build -j         # produces bin/RadField3D
 ```
 
 ## Running
+Every run seeds Geant4's random engine from the system time (mixed with the process id), so runs are independent of each other; all random numbers of a run, including the sampled primary energies and directions, come from that engine. The seed is printed and stored in the field metadata as `random_seed`, and `--append` refuses a run whose seed equals the file's.
+
 RadField3D needs the Geant4 **data packages** at runtime. Install them with your Geant4 build and make the
 `G4*DATA` environment variables available before running — e.g. `source <geant4-install>/bin/geant4.sh`, or set
 them from `geant4-config --datasets`. If a required dataset is missing, RadField3D prints exactly which
@@ -79,16 +81,19 @@ The parameters are the following:
 - *source-shape*: The used source shape to sample rays from. Can be one of: `cone`, `rectangle` or `ellipsoid`.
 - *source-opening-angle*: The opening angle to use for the ray sampling from the source.
   - For `cone`: One single value for the half opening angle in degrees.
-  - For `ellipsoid`: Two values for the half opening angle in degrees and in each direction.
-  - For `rectangle`: Two values for the rectangle extents in meter in `source-distance` meter away from the source (so in the center of the scene).
-- *tracing-algorithm*: The used algorithm to find intersected voxels for a given particle path. Can be one of `sampling`, `bresenham` or `linetracing`.
+  - For `ellipsoid`: Two values for the half opening angle in degrees along x and y, each in (0, 90). Rays are uniform per solid angle inside the elliptical cone.
+  - For `rectangle`: Two values for the rectangle extents in meter in `source-distance` meter away from the source (so in the center of the scene). The source is a point source behind a rectangular collimator: rays are uniform per solid angle, so the photons per area of that plane fall off towards the edges as cos³θ.
+- *tracing-algorithm*: The used algorithm to find intersected voxels for a given particle path. Can be one of `sampling`, `bresenham` or `linetracing` (default). `linetracing` counts every voxel a step touches; `sampling` misses voxels that an oblique step only clips, which lowers the flux of oblique photons (about 7 % in a 20 × 20 cm² beam at 64 cm).
 - *geom*: The path to the geometry file. The geoemetry can be provided by all file formats supported by Assimp like `.obj`, `.fbx` or `.stl`. For each geometry file, one can specify a world scene description file named with the pattern: `[base-file-name].desc` on the same folder as the geoemtry file.
 - *world-material*: Material of the world. Default: Air.
-- *spectrum*: The path to a x-ray spectrum in .csv-format. The CSV-file should have the form column 1: Energy-Bin-Edge starting from 0eV and column 2: relative photon counts for this bin. The input distribution will be normalized to a integral of one.
-- *append*: If a file with the specified name and matching metadata is already present, RadField3D will just add both files together based on the ratio of the primary particles stored in the existing file and the primary particles generated during the current run of RadFiled3D.
+- *spectrum*: The path to a x-ray spectrum in .csv-format. The CSV-file should have the form column 1: the centre energy of a bin and column 2: relative photon counts for this bin (see [Spectrum files](#spectrum-files)). The input distribution will be normalized to a integral of one.
+- *autosave-interval*: Store the field every N particles while the simulation runs (default 1e6, 0 disables auto-saves). Raise it for long runs with large layers (e.g. a fine angular resolution), where every save writes the whole file.
+- *append*: If a file with the specified name and matching simulation setup is already present, this run is combined with it as if both had been one run: flux and angular flux are averaged weighted by the primary particles of each, the spectra are mixed per voxel weighted by each run's flux, the statistical errors are combined accordingly, and the primary particle counts and the `tube_spectrum` counts add up. The file's geometry channel is kept. All arithmetic runs in double precision; a result that does not fit the stored float32 type, an unknown layer or a different setup abort the append and leave the file unchanged. During an `--append` run, auto-saves go to a checkpoint `<out>.partial-<token>` next to the output file instead of the output itself, which receives the run exactly once when it finishes; the checkpoint is then removed. If a run crashes, its checkpoint is a complete field of the particles simulated so far. If the final append fails, the whole run is written to the checkpoint and the program exits with an error.
 - *geom-desc*: Path to the geometry world-description JSON (see below). Default: the geometry file with its extension replaced by `.desc`.
 - *cpu-count*: Number of CPU cores (worker threads) to use. Default: `-1` (all available cores).
 - *angular-resolution*: Optionally enables an extra per-voxel layer that captures the angular distribution of the flux. Provide as `"phi theta"` segment counts.
+- *path-length-weighting*: `on` (default) or `off`. With the line tracer, flux, spectrum, angular bins and vMF lobes hold the incident radiation weighted by the path length inside each voxel (track-length estimate): a corner clip counts almost nothing, an axis-parallel crossing 1, and no direction is favoured by how many voxels it grazes. The voxel a step starts in is left out (after an interaction the radiation there leaves the voxel). The flux unit is then `voxel edges / primary_particles` (path length in voxel edges per primary); isotropic scatter comes out about a third lower than with `off`, which counts every touched voxel once (the behaviour before 1.2.0). `--append` refuses to mix the two.
+- *directional-lobes*: Optionally learns, per voxel of the `scatter_field` channel, the directions of travel as a mixture of at most N von Mises–Fisher lobes (1–8) and stores it as layer `vmf_lobes` (per lobe: weight as share of the voxel flux, mean direction, concentration κ). Lobes that describe the same source are merged, so a voxel lit by one source keeps a single lobe. Unlike direction bins it gives the radiance in an exact direction with 5·N values per voxel. `direct_beam` gets no lobes, its direction is the line from the focal spot. Needs a RadFiled3D version with the vMF layer type; `--append` refuses files with this layer.
 - *statistical-error-threshold*: Relative statistical error at which the simulation stops early. Default: `0.1` (10%).
 - *statistical-error-enforcement-ratio*: Fraction of voxels that must be below the error threshold before the run stops early. Default: `0.95` (95%).
 - *gui*: Show the Geant4 GUI. Only available in a `WITH_GEANT4_UIVIS` build; ignored otherwise.
@@ -177,11 +182,12 @@ Parameters:
 - *source_angles*: The angles from which the source is facing the center (phi and theta angle in degree).
 - *source_opening_angle*: The opening angle to use for the ray sampling from the source.
   - For `cone`: One single value for the half opening angle in degrees.
-  - For `ellipsoid`: Two values for the half opening angle in degrees and in each direction.
-  - For `rectangle`: Two values for the rectangle extents in meter in `source-distance` meter away from the source (so in the center of the scene).
+  - For `ellipsoid`: Two values for the half opening angle in degrees along x and y, each in (0, 90). Rays are uniform per solid angle inside the elliptical cone.
+  - For `rectangle`: Two values for the rectangle extents in meter in `source-distance` meter away from the source (so in the center of the scene). The source is a point source behind a rectangular collimator: rays are uniform per solid angle, so the photons per area of that plane fall off towards the edges as cos³θ.
 - *clean*: Issues to first remove all radiation field files that already exist and do not append to them.
 - *bin_count*: Sets the energy resolution according to the desired bin count and maximum energy.
-- *tracer_algorithm*: The used algorithm to find intersected voxels for a given particle path. Can be one of `sampling`, `bresenham` or `linetracing`.
+- *tracer_algorithm*: The used algorithm to find intersected voxels for a given particle path. Can be one of `sampling`, `bresenham` or `linetracing` (default).
+- *statistical_error_threshold*: Stops a field early once the binary's estimate of the relative statistical error falls below this value. `0` (default) turns the early stop off, so every field gets exactly `particles` photons; the binary on its own stops at `0.1` unless told otherwise. A `"StatisticalErrorThreshold"` metaparameter sets it for a whole dataset.
 - *join_channels*: Optional post-simulation step. Joins the `direct_beam` and `scatter_field` channels into a single per-primary field (removing the two originals) to roughly halve the per-field storage. The flux is summed (staying per primary particle); the spectrum is combined as a flux-weighted per-voxel mix and renormalized per voxel; the statistical error is the mean; any other channel (e.g. the voxelized geometry) is kept unchanged.
 - *sequence_file*: Optional: Allows to load some of the options sequentially from a JSON-File to automate specific dataset configurations under specified conditions.
 - *dataset_definition*: Provide the path to a JSON file containing a whole dataset generation definition. This overrdides all other parameters except for `--dest`, `--binary` and `--cluster_node_partition`. An Example can be found below.
@@ -297,12 +303,12 @@ An optional post-simulation step is configured from `Metaparameters`: `"JoinChan
 
 #### Spectrum files
 X-ray spectra for the radiation source can be passed to the simulation by spectra files. When using the python dataset generator those can be of two types determined by their file extension:
-- __*.spectrum__ files will be interpreted and parsed as pickle files of pyTorch tensors. Those are converted to CSV files, readable by the RadField3D application itself. The first column shall be the energy bin edges in eV and the second column the probability of a photon of that energy range. Each *.spectrum file should be accompanied by a *.info file replacing the .spectrum extension that holds a JSON document that defines the origin configuration that created this spectrum. RadField3D only requires that document to contain a "energy" field in eV that defines the maximum tube energy.
-- __*.csv__ will be interpreted and used as ASCII CSV files. Here the first column is containing the energy bin edges and the second column the probability of a photon of that energy range. It is required, that the column has a unit of __eV__, __keV__ or __MeV__ declared to ensure correct handling of the spectrum.
+- __*.spectrum__ files will be interpreted and parsed as pickle files of pyTorch tensors. Those are converted to CSV files, readable by the RadField3D application itself. The first column shall be the centre energies of the bins in eV (SpekPy's mid-bin energies) and the second column the probability of a photon of that bin. Each *.spectrum file should be accompanied by a *.info file replacing the .spectrum extension that holds a JSON document that defines the origin configuration that created this spectrum. RadField3D only requires that document to contain a "energy" field in eV that defines the maximum tube energy.
+- __*.csv__ will be interpreted and used as ASCII CSV files. Here the first column is containing the centre energies of the bins and the second column the probability of a photon of that bin. It is required, that the column has a unit of __eV__, __keV__ or __MeV__ declared to ensure correct handling of the spectrum.
 
 For a direct call of RadField3D, only ASCII *.csv files can be used.
 
-In any case, RadField3D will normalize the spectrum to ensure it to be a probability distribution.
+In any case, RadField3D will normalize the spectrum to ensure it to be a probability distribution. Each listed energy is the centre of a bin that reaches halfway to the neighbouring energies (the first and last bins reach as far outwards as inwards), and energies are sampled uniformly within their bin. This matches SpekPy's output and the tube spectrum RadField3D stores in every field, so a spectrum extracted from a field reproduces the original one.
 
 ##### Example spectrum CSV file
 ```csv

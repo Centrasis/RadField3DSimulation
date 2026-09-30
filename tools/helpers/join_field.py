@@ -2,12 +2,9 @@ from typing import Iterable
 
 import numpy as np
 
-from RadFiled3D.RadFiled3D import (
-    FieldStore,
-    CartesianRadiationField,
-    DType,
-    vec3,
-)
+from radfiled3d import CartesianRadiationField, DType
+from radfiled3d.glm import vec3
+from radfiled3d.store import FieldStore
 
 _SCALAR_DTYPE_BY_NAME = {
     "float16": DType.FLOAT16,
@@ -130,6 +127,10 @@ def join_rf3_file(
         _add_layer_like(beam, dst, "error")
         dst.get_layer_as_ndarray("error")[...] = error.astype(dst.get_layer_as_ndarray("error").dtype)
         handled.add("error")
+
+    # a vMF mixture is not additive: joining it needs a flux-weighted lobe merge back to the same lobe count
+    if "vmf_lobes" in beam_layers or "vmf_lobes" in scatter_layers:
+        raise ValueError(f"{path}: joining channels with a 'vmf_lobes' layer is not supported (it needs a lobe merge)")
 
     # --- any other per-voxel layer common to both channels: additive per primary (e.g. angular flux) ---
     for layer_name in beam.get_layers():

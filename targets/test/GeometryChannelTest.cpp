@@ -4,7 +4,7 @@
 #include "Geometry.hpp"
 #include <Geant4/G4Geometry.hpp>
 #include <Geant4/G4RadiationFieldDetector.hpp>
-#include <RadFiled3D/RadiationField.hpp>
+#include <radfiled3d/radiation_field.hpp>
 #include <G4Navigator.hh>
 #include <G4TransportationManager.hh>
 #include <G4TouchableHistory.hh>
@@ -130,7 +130,7 @@ TEST(GeometryChannel, MatchesGeant4Navigation) {
 	RadiationSimulator::add_radiation_source(source);
 	RadiationSimulator::set_radiation_field_resolution(world_dim, glm::vec3(voxel_dim), 60e3f * eV, 1e3f * eV, 0.f, 1.f);
 
-	auto field = std::static_pointer_cast<RadFiled3D::CartesianRadiationField>(RadiationSimulator::simulate_radiation_field(1000));
+	auto field = std::static_pointer_cast<radfiled3d::CartesianRadiationField>(RadiationSimulator::simulate_radiation_field(1000));
 	World::Get()->get_radiation_field_detector()->add_geometry_channel_to(*field);
 	ASSERT_TRUE(field->has_channel("geometry"));
 	auto geometry = field->get_channel("geometry");
@@ -195,6 +195,41 @@ TEST(GeometryChannel, MatchesGeant4Navigation) {
 		EXPECT_LE(missed[type], count / 100) << type;
 		std::cout << type << ": " << centre_inside[type] << " voxel centres inside, " << count << " voxels overlapping, " << marked[type] << " marked, " << missed[type] << " missed" << std::endl;
 	}
+
+	// The patient is its material and the materials of its children (the organ), whatever Type they declare.
+	std::set<std::string> patient_materials;
+	for (const G4Material* material : World::Get()->get_radiation_field_detector()->get_patient_materials())
+		patient_materials.insert(material->GetName());
+	EXPECT_EQ(patient_materials, (std::set<std::string>{ "G4_WATER", "G4_LUNG_ICRP" }));
+
+	// Nothing is scored inside the patient's materials: voxels lying entirely in the patient or the organ have no flux in
+	// any channel (PatientScoringTest checks that other geometry is scored).
+	auto innermost_type = [&](const glm::vec3& point) -> std::string {
+		navigator.LocateGlobalPointAndSetup(G4ThreeVector(point.x * m, point.y * m, point.z * m), nullptr, false, true);
+		std::unique_ptr<G4TouchableHistory> touchable(navigator.CreateTouchableHistory());
+		const auto* mesh = dynamic_cast<const Geant4::Mesh*>(touchable->GetVolume(0)->GetLogicalVolume()->GetSolid());
+		return mesh != nullptr ? mesh->getMesh()->getType() : "";
+	};
+	size_t inside_patient = 0;
+	for (unsigned z = 0; z < counts.z; z++) {
+		for (unsigned y = 0; y < counts.y; y++) {
+			for (unsigned x = 0; x < counts.x; x++) {
+				const glm::vec3 low = glm::vec3(x, y, z) * voxel_dim - half_field;
+				bool all_patient = true;
+				for (int s = 0; s < 27 && all_patient; s++) {
+					const std::string type = innermost_type(low + glm::vec3(s % 3, (s / 3) % 3, s / 9) * (voxel_dim / 2.f));
+					all_patient = type == Mesh::PATIENT_TYPE || type == "organ";
+				}
+				if (!all_patient)
+					continue;
+				inside_patient++;
+				for (const char* channel : { "scatter_field", "direct_beam" })
+					EXPECT_EQ(field->get_channel(channel)->get_voxel<radfiled3d::ScalarVoxel<float>>("flux", x, y, z).get_data(), 0.f)
+						<< channel << " voxel (" << x << ", " << y << ", " << z << ") lies inside the patient but has flux";
+			}
+		}
+	}
+	ASSERT_GT(inside_patient, 0u);
 
 	RadiationSimulator::deinitialize();
 }

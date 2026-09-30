@@ -21,6 +21,8 @@ namespace RadiationSimulation::Geant4 {
 		G4Material* world_material = NULL;
 		G4ThreeVector world_dim;
 		void place_mesh(std::shared_ptr<Mesh> mesh, G4LogicalVolume* parent);
+		/** Materials of the patient mesh and its children; throws if one of them is also used outside the patient. */
+		std::vector<const G4Material*> patient_materials() const;
 	public:
 		SceneConstructor(const std::vector<std::shared_ptr<Geometry::Mesh>>& meshes);
 		virtual ~SceneConstructor() {

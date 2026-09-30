@@ -2,8 +2,8 @@
 #include <memory>
 #include "RadiationSimulationHandler.hpp"
 #include "Geometry.hpp"
-#include <RadFiled3D/storage/RadiationFieldStore.hpp>
-#include <RadFiled3D/GridTracer.hpp>
+#include <radfiled3d/storage/radiation_field_store.hpp>
+#include <radfiled3d/grid_tracer.hpp>
 
 namespace RadiationSimulation {
 	class World;
@@ -37,14 +37,14 @@ namespace RadiationSimulation {
 		 * @param tracing_algorithm Algorithm to use for grid tracing.
 		 * @return Promise of a shared pointer to the simulated radiation field.
 		 */
-		static std::shared_ptr<RadFiled3D::IRadiationField> simulate_radiation_field(size_t n_particles = 1e+6, RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING);
+		static std::shared_ptr<radfiled3d::IRadiationField> simulate_radiation_field(size_t n_particles = 1e+6, radfiled3d::GridTracerAlgorithm tracing_algorithm = radfiled3d::GridTracerAlgorithm::LINETRACING, bool path_length_weighting = true);
 
 		/**
 		 * @brief Adds a callback function to be called every n particles.
 		 * @param callback The callback function.
 		 * @param n_particles Number of particles after which the callback is called.
 		 */
-		static void add_callback_every_n_particles(std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)> callback, size_t n_particles);
+		static void add_callback_every_n_particles(std::function<void(std::shared_ptr<radfiled3d::IRadiationField>, size_t)> callback, size_t n_particles);
 
 		/**
 		 * @brief Displays the graphical user interface.
@@ -78,9 +78,15 @@ namespace RadiationSimulation {
 		 * @param statistical_error_threshold Statistical error threshold that needs to be fullfilled by a certain amount of voxels for early stopping of the simulation.
 		 * @param statistical_error_enforcement_ratio Ratio of voxels that need to fullfill the statistical error threshold. The enforcement is done on the top x% of voxels sorted by their errors.
 		 * @param angular_resolution Number of segments (phi, theta) for angular distribution per voxel. 0 = disabled.
+		 * @param directional_lobes Maximum number of von Mises-Fisher lobes per voxel, learned during the run. 0 = disabled.
 		 */
-		static void set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, const glm::uvec2& angular_resolution = glm::uvec2(0));
+		static void set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, const glm::uvec2& angular_resolution = glm::uvec2(0), uint32_t directional_lobes = 0);
 
+		/**
+		 * @brief Seeds the random numbers of the simulation (see Geant4::RadiationSimulationHandler::set_random_seed).
+		 * @param seed The run's seed.
+		 */
+		static void set_random_seed(uint64_t seed);
 		/**
 		 * @brief Deinitializes the radiation simulator.
 		 */

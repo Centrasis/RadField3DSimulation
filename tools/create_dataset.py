@@ -480,6 +480,8 @@ if __name__ == "__main__":
     parser.add_argument("--voxel_size", default=0.05, type=float, nargs=1, required=False, help="Dimension of the cubic voxels in m")
     parser.add_argument("--world_size", default=[1, 1, 1], type=float, nargs=3, required=False, help="Dimension of the rectangular world in m")
     parser.add_argument("--angular_resolution", default=[0, 0], type=int, nargs=2, required=False, help="Enables an extra layer that captures the angular distribution of the flux in each voxel.")
+    parser.add_argument("--statistical_error_threshold", default=None, type=float, required=False, help="Stop a field early once the binary's estimate of the relative statistical error falls below this value. 0 (default) turns the early stop off, so every field gets exactly --particles photons. A 'StatisticalErrorThreshold' metaparameter in the definition sets it too.")
+    parser.add_argument("--directional_lobes", default=0, type=int, required=False, help="Maximum number of von Mises-Fisher lobes per voxel (1-8, 0 = off), stored as layer 'vmf_lobes'. One value for the whole dataset, so every field has the same layer layout. A 'DirectionalLobes' metaparameter in the definition sets it too.")
     parser.add_argument("--join_channels", default=False, action="store_true", required=False, help="Post simulation join the direct_beam and scatter_field channels into a single per-primary field (removing the originals) to save memory. Flux is summed; the spectrum is combined flux-weighted per voxel.")
     parser.add_argument("--energy_res", default=1e+2, type=float, nargs=1, required=False, help="Energy resolution to use in eV for the sampling of new energies during dataset creation.")
     parser.add_argument("--binary", default="RadField3D.exe", type=str, nargs=1, required=False, help="Path to RadField3D Binary")
@@ -491,7 +493,8 @@ if __name__ == "__main__":
     parser.add_argument("--clean", default=False, action="store_true", required=False, help="Clean the output radiation field before calculating it new. Otherwise append, if the fields are representing the same.")
     parser.add_argument("--bin_count", default=None, required=False, type=float, help="Optional: Define the number of energy bins to store for each fluence in each voxel. Defaults to match a bin width of 1 eV.")
     parser.add_argument("--sequence_file", default=None, type=str, nargs=1, required=False, help="Path to a sequence file that should be used. (Disables energy and angle sampling)")
-    parser.add_argument("--tracer_algorithm", default="sampling", type=str, nargs=1, required=False, help="Tracer algorithm to use (sampling, bresenham, linetracing)")
+    parser.add_argument("--path_length_weighting", default="on", choices=["on", "off"], required=False, help="With the linetracing tracer, weight every voxel a photon enters by its path length inside it (track-length estimate) instead of counting it once; default on")
+    parser.add_argument("--tracer_algorithm", default="linetracing", type=str, nargs=1, required=False, help="Tracer algorithm to use (sampling, bresenham, linetracing); default linetracing")
     parser.add_argument("--dataset_definition", default=None, type=str, nargs=1, required=False, help="Path to a dataset definition file that should be used. (Overrides energy/angle7/source_distance/source_shape/source_opening_angle sampling, energy_resolution, ...)")
     parser.add_argument("--error_logs", default=None, type=str, nargs=1, required=False, help="Path to a folder where the error logs should be stored. Defaults to None which means console output only.")
     parser.add_argument("--cpu_count", default=-1, type=int, nargs=1, required=False, help="Number of CPU cores to use for the calculation. Defaults to -1 which means all available cores.")
@@ -627,6 +630,32 @@ if __name__ == "__main__":
             should_join_channels = should_join_channels or bool(_definition_meta.get("JoinChannels", False))
         except Exception as e:
             LOGGER.warning(f"Could not read JoinChannels from dataset definition: {e}")
+
+    # Directional lobes: one value for the whole dataset (never sampled per field), so all fields share the
+    # same vmf_lobes layout — datasets load every field into the same layer memory layout.
+    directional_lobes = int(args.directional_lobes)
+    if dataset_definition_file is not None:
+        _definition_lobes = json.load(open(dataset_definition_file, "r")).get("Metaparameters", {}).get("DirectionalLobes")
+        if _definition_lobes is not None:
+            if directional_lobes not in (0, int(_definition_lobes)):
+                raise ValueError(f"--directional_lobes {directional_lobes} contradicts DirectionalLobes {_definition_lobes} of the dataset definition")
+            directional_lobes = int(_definition_lobes)
+    if not 0 <= directional_lobes <= 8:
+        raise ValueError(f"The number of directional lobes must lie in [0, 8], got {directional_lobes}")
+    if directional_lobes > 0 and should_join_channels:
+        raise ValueError("Joining channels is not supported together with directional lobes: the joined channel would carry lobes that describe only its scatter part")
+
+    # Early stop on the statistical error: off by default, so the photon count per field is the one requested.
+    statistical_error_threshold = args.statistical_error_threshold
+    if dataset_definition_file is not None:
+        _definition_threshold = json.load(open(dataset_definition_file, "r")).get("Metaparameters", {}).get("StatisticalErrorThreshold")
+        if _definition_threshold is not None:
+            if statistical_error_threshold is not None and float(statistical_error_threshold) != float(_definition_threshold):
+                raise ValueError(f"--statistical_error_threshold {statistical_error_threshold} contradicts StatisticalErrorThreshold {_definition_threshold} of the dataset definition")
+            statistical_error_threshold = float(_definition_threshold)
+    statistical_error_threshold = 0.0 if statistical_error_threshold is None else float(statistical_error_threshold)
+    if statistical_error_threshold < 0.0:
+        raise ValueError(f"The statistical error threshold must be >= 0, got {statistical_error_threshold}")
 
     # Patient translation is "on" when the GeometryTransformations sample a Translation for the patient;
     # only then is the applied translation captured into each field's dynamic metadata.
@@ -870,6 +899,9 @@ if __name__ == "__main__":
                         "--energy-resolution", str(simulation_energy_resolution),
                         "--source-opening-angle", f"{source_opening_angle}",
                         "--tracing-algorithm", f"{tracer_algorithm}",
+                        "--path-length-weighting", args.path_length_weighting,
+                        *(["--directional-lobes", str(directional_lobes)] if directional_lobes > 0 else []),
+                        "--statistical-error-threshold", str(statistical_error_threshold),
                         "--world-material", world_material
                     ] + additional_options + spec_args + geom_args
 

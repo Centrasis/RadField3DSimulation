@@ -1,5 +1,9 @@
 #include "RadiationSource.hpp"
+#include <algorithm>
+#include <cmath>
 #include <fstream>
+#include <map>
+#include <stdexcept>
 #include <string>
 #include <sstream>
 #include <iostream>
@@ -30,9 +34,9 @@ void RadiationSource::setTransform(const glm::vec3& location, const glm::vec3& o
 	this->rotation = glm::angleAxis(angle, glm::normalize(axis));
 }
 
-glm::vec3 RadiationSimulation::RadiationSource::drawRayDirection()
+glm::vec3 RadiationSimulation::RadiationSource::drawRayDirection(const UniformRandom& uniform)
 {
-	return glm::vec3(this->rotation * glm::vec4(this->shape->drawRayDirection(), 0.f));
+	return glm::vec3(this->rotation * glm::vec4(this->shape->drawRayDirection(uniform), 0.f));
 }
 
 XRaySource::XRaySource(float energy_eV, std::unique_ptr<ISourceShape> shape)
@@ -45,22 +49,35 @@ RadiationSimulation::XRaySpectrumSource::XRaySpectrumSource(std::shared_ptr<Stat
 	  energy_lower_cut_eV(energy_lower_cut_eV),
 	  spectrum_probabilities(spectrum_probabilities)
 {
+	if (!(energy_lower_cut_eV >= 0.f && energy_lower_cut_eV <= max_energy_lower_cut_eV))
+		throw std::invalid_argument("The lower energy cut of " + std::to_string(energy_lower_cut_eV) + " eV lies outside [0, " + std::to_string(max_energy_lower_cut_eV) + "] eV; photons above 5 keV must never be cut.");
+
 	if (max_energy_eV <= 0.f)
 		max_energy_eV = spectrum_probabilities->max();
-	else 
-		if (max_energy_eV < spectrum_probabilities->max()) {
-			std::cerr << "Max energy value is lower than the maximum value in the spectrum: " << max_energy_eV << " < " << spectrum_probabilities->max() << std::endl;
-			throw std::runtime_error("Max energy value is lower than the maximum value in the spectrum");
-		}
 
-	this->hist_buffer = std::vector<float>(std::max<size_t>(max_energy_eV / 1e+3, 1), 0.0f);
-	this->hist = RadFiled3D::HistogramVoxel<float>(this->hist_buffer.size(), 1e+3, this->hist_buffer.data());
-	this->hist.clear();
+	// relative tolerance: bin edges are computed in double from float energies
+	if (max_energy_eV > 0.f && max_energy_eV * (1.0 + 1e-6) < spectrum_probabilities->max()) {
+		std::cerr << "Max energy value is lower than the maximum value in the spectrum: " << max_energy_eV << " < " << spectrum_probabilities->max() << std::endl;
+		throw std::runtime_error("Max energy value is lower than the maximum value in the spectrum");
+	}
+
+	this->lower_cut_probability = spectrum_probabilities->cdf(energy_lower_cut_eV);
+	if (this->lower_cut_probability >= 1.0)
+		throw std::runtime_error("The spectrum has no energies above the lower cut of " + std::to_string(energy_lower_cut_eV) + " eV");
+
+	this->generated_counts = std::vector<std::atomic<uint64_t>>(std::max<size_t>(static_cast<size_t>(max_energy_eV / generated_bin_width_eV), 1));
 }
 
 RadiationSimulation::XRaySpectrumSource::~XRaySpectrumSource()
 {
-	// No need to delete hist_buffer, unique_ptr will handle it
+}
+
+std::vector<uint64_t> RadiationSimulation::XRaySpectrumSource::getGeneratedCounts() const
+{
+	std::vector<uint64_t> counts(this->generated_counts.size());
+	for (size_t i = 0; i < counts.size(); i++)
+		counts[i] = this->generated_counts[i].load(std::memory_order_relaxed);
+	return counts;
 }
 
 size_t RadiationSimulation::XRaySpectrumSource::getPossibilitiesCount() const
@@ -68,22 +85,14 @@ size_t RadiationSimulation::XRaySpectrumSource::getPossibilitiesCount() const
 	return this->spectrum_probabilities->get_point_count();
 }
 
-float RadiationSimulation::XRaySpectrumSource::drawEnergy_eV()
+float RadiationSimulation::XRaySpectrumSource::drawEnergy_eV(const UniformRandom& uniform)
 {
-	float energy_eV = 0.0f;
-	size_t draw_count = 0;
-	while(energy_eV <= 0.0f || energy_eV < this->energy_lower_cut_eV) {
-		energy_eV = this->spectrum_probabilities->draw_sample();
-		if(++draw_count > 10000) {
-			throw std::runtime_error("Failed to draw a valid energy value");
-		}
-	}
+	// inverse transform restricted to the part of the spectrum above the lower cut: exact, no rejection
+	const double p = this->lower_cut_probability + uniform() * (1.0 - this->lower_cut_probability);
+	const float energy_eV = this->spectrum_probabilities->quantile(p);
 
-	if (energy_eV > spectrum_probabilities->max())
-		std::cout << "Energy value is higher than the maximum value in the spectrum: " << energy_eV << " > " << spectrum_probabilities->max() << std::endl;
-
-	std::unique_lock lock(this->hist_mutex);
-	this->hist.add_value(energy_eV);
+	const size_t bin = std::min(static_cast<size_t>((energy_eV + 0.5f * generated_bin_width_eV) / generated_bin_width_eV), this->generated_counts.size() - 1);
+	this->generated_counts[bin].fetch_add(1, std::memory_order_relaxed);
 
 	return energy_eV;
 }
@@ -183,72 +192,70 @@ std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> RadiationSimulati
 }
 
 RadiationSimulation::ConeSourceShape::ConeSourceShape(float opening_angle_deg)
-	: rot_angle_distribution(
-		  std::uniform_real_distribution<float>(
-			  0.f,
-			  1.f
-		  )
-	  ),
-	  opening_angle_radians(glm::radians(opening_angle_deg))
+	: opening_angle_radians(glm::radians(opening_angle_deg))
 {
 }
 
-glm::vec3 RadiationSimulation::ConeSourceShape::drawRayDirection()
+glm::vec3 RadiationSimulation::ConeSourceShape::drawRayDirection(const UniformRandom& uniform)
 {
-	// One RNG per worker thread: the shape is shared across MT workers (one RadiationSource), so a shared
-	// engine would be a data race. thread_local gives each worker its own stream; the config'd distribution
-	// (a member) is read-only here — uniform_real_distribution mutates only the engine, so this is safe.
-	thread_local std::mt19937 rand_engine{ std::random_device{}() };
-	float theta = 2.0f * glm::pi<float>() * this->rot_angle_distribution(rand_engine); // Azimuthal angle
-	float phi = acos(1.0f - this->rot_angle_distribution(rand_engine) * (1.0f - cos(this->opening_angle_radians))); // Polar angle
+	// uniform per solid angle within the cone's half opening angle
+	const float azimuth = 2.0f * glm::pi<float>() * static_cast<float>(uniform());
+	const float polar = std::acos(1.0f - static_cast<float>(uniform()) * (1.0f - std::cos(this->opening_angle_radians)));
 
 	return glm::vec3(
-		std::sin(phi) * std::cos(theta),
-		std::sin(phi) * std::sin(theta),
-		-std::cos(phi)
+		std::sin(polar) * std::cos(azimuth),
+		std::sin(polar) * std::sin(azimuth),
+		-std::cos(polar)
 	);
 }
 
 RadiationSimulation::RectangleSourceShape::RectangleSourceShape(const glm::vec2& size, float distance)
 	: size(size),
-	  distance(distance),
-	  distribution_x(-0.5f * size.x, 0.5f * size.x),
-	  distribution_y(-0.5f * size.y, 0.5f * size.y)
+	  distance(distance)
 {
-
+	if (!(distance > 0.f))
+		throw std::invalid_argument("The distance of a rectangle source's field size must be positive.");
 }
 
-glm::vec3 RadiationSimulation::RectangleSourceShape::drawRayDirection()
+glm::vec3 RadiationSimulation::RectangleSourceShape::drawRayDirection(const UniformRandom& uniform)
 {
-	// Per-worker-thread RNG (see ConeSourceShape::drawRayDirection).
-	thread_local std::mt19937 rand_engine{ std::random_device{}() };
-	float x = this->distribution_x(rand_engine);
-	float y = this->distribution_y(rand_engine);
-
-	return glm::normalize(glm::vec3(x, y, -this->distance));
+	// A point source behind a rectangular collimator: uniform per solid angle inside the pyramid through the rectangle.
+	// Such a source puts cos³θ photons per area onto the flat rectangle, so a uniform point on it is kept with that
+	// probability.
+	const double distance = static_cast<double>(this->distance);
+	while (true) {
+		const double x = (uniform() - 0.5) * static_cast<double>(this->size.x);
+		const double y = (uniform() - 0.5) * static_cast<double>(this->size.y);
+		const double length = std::sqrt(x * x + y * y + distance * distance);
+		const double cos_theta = distance / length;
+		if (uniform() < cos_theta * cos_theta * cos_theta)
+			return glm::vec3(static_cast<float>(x / length), static_cast<float>(y / length), static_cast<float>(-cos_theta));
+	}
 }
 
-RadiationSimulation::EllipsoidSourceShape::EllipsoidSourceShape(const glm::vec2& angles)
-	: angles(
-		glm::vec2(
-			glm::radians(angles.x),
-			glm::radians(angles.y)
-		)
-	),
-	distribution(-0.5f, 0.5f)
+RadiationSimulation::EllipsoidSourceShape::EllipsoidSourceShape(const glm::vec2& half_angles)
+	: half_angles_degrees(half_angles)
 {
+	if (!(half_angles.x > 0.f && half_angles.x < 90.f && half_angles.y > 0.f && half_angles.y < 90.f))
+		throw std::invalid_argument("The half opening angles of an ellipsoid source must lie in (0, 90) degrees.");
+	this->tan_half_angles = glm::dvec2(std::tan(glm::radians(static_cast<double>(half_angles.x))), std::tan(glm::radians(static_cast<double>(half_angles.y))));
+	this->cos_enclosing_angle = std::cos(glm::radians(static_cast<double>(std::max(half_angles.x, half_angles.y))));
 }
 
-glm::vec3 RadiationSimulation::EllipsoidSourceShape::drawRayDirection()
+glm::vec3 RadiationSimulation::EllipsoidSourceShape::drawRayDirection(const UniformRandom& uniform)
 {
-	// Per-worker-thread RNG (see ConeSourceShape::drawRayDirection).
-	thread_local std::mt19937 rand_engine{ std::random_device{}() };
-	// draw ellipsoid direction distribution from 2D-angles
-	float x = this->distribution(rand_engine) * this->angles.x;
-	float y = this->distribution(rand_engine) * this->angles.y;
-
-	glm::vec3 direction = glm::vec3(0.f, 0.f, -1.0f);
-	glm::quat rotation = glm::angleAxis(x, glm::vec3(1.0f, 0.0f, 0.0f)) * glm::angleAxis(y, glm::vec3(0.0f, 1.0f, 0.0f));
-
-	return rotation * direction;
+	// Uniform per solid angle in the circular cone around the larger half angle, kept if inside the elliptical cone:
+	// rejection keeps the distribution uniform per solid angle.
+	while (true) {
+		const double azimuth = 2.0 * glm::pi<double>() * uniform();
+		const double cos_polar = 1.0 - uniform() * (1.0 - this->cos_enclosing_angle);
+		const double sin_polar = std::sqrt(std::max(0.0, 1.0 - cos_polar * cos_polar));
+		// slopes of the direction against the beam axis, i.e. its point on the plane at unit distance
+		const double slope_x = sin_polar * std::cos(azimuth) / cos_polar;
+		const double slope_y = sin_polar * std::sin(azimuth) / cos_polar;
+		const double ex = slope_x / this->tan_half_angles.x;
+		const double ey = slope_y / this->tan_half_angles.y;
+		if (ex * ex + ey * ey <= 1.0)
+			return glm::vec3(static_cast<float>(sin_polar * std::cos(azimuth)), static_cast<float>(sin_polar * std::sin(azimuth)), static_cast<float>(-cos_polar));
+	}
 }

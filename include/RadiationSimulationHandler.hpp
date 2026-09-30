@@ -1,9 +1,9 @@
 #pragma once
 #include <memory>
-#include "RadFiled3D/RadiationField.hpp"
+#include <cstdint>
+#include "radfiled3d/radiation_field.hpp"
 #include "RadiationSource.hpp"
-#include <CLHEP/Random/MTwistEngine.h>
-#include <RadFiled3D/GridTracer.hpp>
+#include <radfiled3d/grid_tracer.hpp>
 #include <G4RunManager.hh>
 
 #ifdef WITH_GEANT4_UIVIS
@@ -35,6 +35,7 @@ namespace RadiationSimulation::Geant4 {
 				float enforcement_resolution = 1.f; ///< Statistical error resolution for enforcement e.g. check for every n-th voxel with 1.f -> every voxel and 0.5f -> every second, ....
 			} statistical_error;
 			glm::uvec2 angular_resolution = glm::uvec2(0); //< Number of segments (phi, theta) for angular distribution per voxel. 0 = disabled
+			uint32_t directional_lobes = 0; //< Maximum number of vMF lobes per voxel learned during the run. 0 = disabled
 		} radiation_field_resolution;
 
 		std::vector<std::shared_ptr<Geometry::Mesh>> meshes;
@@ -44,14 +45,13 @@ namespace RadiationSimulation::Geant4 {
 		G4VModularPhysicsList* physics; ///< Pointer to the physics list.
 		const int base_particle_count = 1e+6; ///< Base particle count for the simulation.
 		bool has_ui = false; ///< Flag indicating if the UI is available.
-		CLHEP::MTwistEngine random_generator; ///< Random number generator.
 		std::unique_ptr<G4RunManager> G4mgr; ///< Unique pointer to the Geant4 run manager.
 #ifdef WITH_GEANT4_UIVIS
 		std::shared_ptr<G4UImanager> G4UIManager; ///< Shared pointer to the Geant4 UI manager.
 		std::unique_ptr<G4VisExecutive> G4VisManager; ///< Unique pointer to the Geant4 visualization manager.
 #endif
 		std::shared_ptr<RadiationFieldDetector> field_detector; ///< Shared pointer to the radiation field detector.
-		std::vector<std::pair<size_t, std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)>>> callbacks; ///< Vector of callbacks.
+		std::vector<std::pair<size_t, std::function<void(std::shared_ptr<radfiled3d::IRadiationField>, size_t)>>> callbacks; ///< Vector of callbacks.
 
 	public:
 		RadiationSimulationHandler(const int cpu_count = -1);
@@ -59,8 +59,14 @@ namespace RadiationSimulation::Geant4 {
 		/**
 		 * @brief Set the resolution of the radiation field.
 		 */
-		void set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, glm::uvec2 angular_resolution = glm::uvec2(0));
+		void set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, glm::uvec2 angular_resolution = glm::uvec2(0), uint32_t directional_lobes = 0);
 
+		/**
+		 * @brief Seeds Geant4's random engine, from which the run manager derives the seeds of every event.
+		 * Must be called before the simulation starts.
+		 * @param seed The run's seed.
+		 */
+		void set_random_seed(uint64_t seed);
 		/**
 		 * @brief Initialize the Geant4 simulation handler.
 		 * @return True if initialization is successful, false otherwise.
@@ -94,7 +100,9 @@ namespace RadiationSimulation::Geant4 {
 		 * @param tracing_algorithm Algorithm to use for grid tracing.
 		 * @return Shared pointer to the simulated radiation field.
 		 */
-		virtual std::shared_ptr<RadFiled3D::IRadiationField> simulate_radiation_field(size_t n_particles = 1e+6, RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING);
+		/** @param path_length_weighting With the line tracer, weight each voxel a step enters by the path length inside it
+		* (track-length estimate) instead of counting it once. */
+		virtual std::shared_ptr<radfiled3d::IRadiationField> simulate_radiation_field(size_t n_particles = 1e+6, radfiled3d::GridTracerAlgorithm tracing_algorithm = radfiled3d::GridTracerAlgorithm::LINETRACING, bool path_length_weighting = true);
 
 		/**
 		 * @brief Deinitialize the Geant4 simulation handler.
@@ -112,6 +120,6 @@ namespace RadiationSimulation::Geant4 {
 		 * @param callback Function to be called.
 		 * @param n_particles Number of particles after which the callback is executed.
 		 */
-		virtual void add_callback_every_n_particles(std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)> callback, size_t n_particles);
+		virtual void add_callback_every_n_particles(std::function<void(std::shared_ptr<radfiled3d::IRadiationField>, size_t)> callback, size_t n_particles);
 	};
 }

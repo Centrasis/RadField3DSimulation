@@ -3,14 +3,19 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <functional>
 #include <memory>
-#include <random>
 #include "ProbabilityFunctions.hpp"
-#include "RadFiled3D/Voxel.hpp"
-#include <mutex>
-#include <shared_mutex>
+#include "radfiled3d/voxel.hpp"
+#include <atomic>
+#include <cstdint>
+#include <vector>
 
 namespace RadiationSimulation {
+	/** Source of random numbers uniformly distributed in [0, 1). The Geant4 primary generator passes the worker's
+	* per-event engine (G4UniformRand), so every sampled primary is determined by the run's seed.
+	*/
+	using UniformRandom = std::function<double()>;
 
 	/**
 	 * @brief Interface for source shapes.
@@ -20,9 +25,10 @@ namespace RadiationSimulation {
 		virtual ~ISourceShape() = default;
 		/**
 		 * @brief Draws a ray direction at random.
+		 * @param uniform Source of the random numbers.
 		 * @return The direction of the ray as a glm::vec3.
 		 */
-		virtual glm::vec3 drawRayDirection() = 0;
+		virtual glm::vec3 drawRayDirection(const UniformRandom& uniform) = 0;
 	};
 
 	/**
@@ -30,9 +36,6 @@ namespace RadiationSimulation {
 	 */
 	class ConeSourceShape : public ISourceShape {
 	protected:
-		// RNG is per worker thread (thread_local in drawRayDirection) — the shape is shared across MT
-		// workers, so a shared engine would be a data race. Only the config'd distribution is a member.
-		std::uniform_real_distribution<float> rot_angle_distribution; ///< Distribution for rotation angles.
 		float opening_angle_radians; ///< Opening angle in radians.
 	public:
 		/**
@@ -43,36 +46,37 @@ namespace RadiationSimulation {
 
 		/**
 		 * @brief Draws a ray direction within the cone.
+		 * @param uniform Source of the random numbers.
 		 * @return The direction of the ray as a glm::vec3.
 		 */
-		virtual glm::vec3 drawRayDirection() override;
+		virtual glm::vec3 drawRayDirection(const UniformRandom& uniform) override;
 
 		float getOpeningAngleDegrees() const { return glm::degrees(this->opening_angle_radians); }
 	};
 
 	/**
-	 * @brief Rectangle-shaped radiation source.
+	 * @brief Rectangle-shaped radiation source: a point source behind a rectangular collimator.
+	 * Rays are uniform per solid angle inside the pyramid through the rectangle, so the photons per area of the
+	 * rectangle's plane fall off towards its edges as cos³θ.
 	 */
 	class RectangleSourceShape : public ISourceShape {
 	protected:
-		// RNG is per worker thread (thread_local in drawRayDirection); see the note on ConeSourceShape.
-		std::uniform_real_distribution<float> distribution_x; ///< Distribution for generating directions.
-		std::uniform_real_distribution<float> distribution_y; ///< Distribution for generating directions.
 		glm::vec2 size; ///< Size of the rectangle.
 		float distance; ///< Distance from the source.
 	public:
 		/**
 		 * @brief Constructor for RectangleSourceShape.
 		 * @param size Size of the rectangle at the specified distance.
-		 * @param distance Distance from the source at which the rectangle size shouldbe fulfilled.
+		 * @param distance Distance from the source at which the rectangle size shouldbe fulfilled, must be positive.
 		 */
 		RectangleSourceShape(const glm::vec2& size, float distance);
 
 		/**
 		 * @brief Draws a ray direction within the rectangle.
+		 * @param uniform Source of the random numbers.
 		 * @return The direction of the ray as a glm::vec3.
 		 */
-		virtual glm::vec3 drawRayDirection() override;
+		virtual glm::vec3 drawRayDirection(const UniformRandom& uniform) override;
 
 		glm::vec2 getFieldSizeMeters() const { return this->size; }
 	};
@@ -82,23 +86,27 @@ namespace RadiationSimulation {
 	 */
 	class EllipsoidSourceShape : public ISourceShape {
 	protected:
-		glm::vec2 angles; ///< Angles defining the ellipsoid.
-		// RNG is per worker thread (thread_local in drawRayDirection); see the note on ConeSourceShape.
-		std::uniform_real_distribution<float> distribution; ///< Distribution for generating directions.
+		glm::vec2 half_angles_degrees; ///< Half opening angles along x and y in degrees.
+		glm::dvec2 tan_half_angles; ///< Semi-axes of the ellipse the beam cuts from the plane at unit distance.
+		double cos_enclosing_angle; ///< Cosine of the larger half opening angle.
 	public:
 		/**
-		 * @brief Constructor for EllipsoidSourceShape.
-		 * @param angles Angles defining the ellipsoid.
+		 * @brief Constructor for EllipsoidSourceShape: an elliptical cone around the beam axis, as behind an elliptical
+		 * collimator aperture. At unit distance along the axis, the beam covers the ellipse with the semi-axes
+		 * tan(half_angles.x) and tan(half_angles.y).
+		 * @param half_angles Half opening angles along x and y in degrees, each in (0, 90).
+		 * @throws std::invalid_argument if an angle lies outside (0, 90) degrees.
 		 */
-		EllipsoidSourceShape(const glm::vec2& angles);
+		EllipsoidSourceShape(const glm::vec2& half_angles);
 
 		/**
-		 * @brief Draws a ray direction within the ellipsoid.
+		 * @brief Draws a ray direction uniformly per solid angle within the elliptical cone.
+		 * @param uniform Source of the random numbers.
 		 * @return The direction of the ray as a glm::vec3.
 		 */
-		virtual glm::vec3 drawRayDirection() override;
+		virtual glm::vec3 drawRayDirection(const UniformRandom& uniform) override;
 
-		glm::vec2 getOpeningAnglesDegrees() const { return this->angles; }
+		glm::vec2 getOpeningAnglesDegrees() const { return this->half_angles_degrees; }
 	};
 
 	/**
@@ -128,9 +136,10 @@ namespace RadiationSimulation {
 
 		/**
 		 * @brief Draws the energy of the radiation.
+		 * @param uniform Source of the random numbers.
 		 * @return The energy of the radiation in electron volts.
 		 */
-		virtual float drawEnergy_eV() { return this->energy_eV; }
+		virtual float drawEnergy_eV(const UniformRandom& uniform) { return this->energy_eV; }
 
 		/**
 		 * @brief Gets the number of possibilities.
@@ -152,9 +161,10 @@ namespace RadiationSimulation {
 
 		/**
 		 * @brief Draws a ray direction.
+		 * @param uniform Source of the random numbers.
 		 * @return The direction of the ray as a glm::vec3.
 		 */
-		glm::vec3 drawRayDirection();
+		glm::vec3 drawRayDirection(const UniformRandom& uniform);
 
 		/**
 		 * @brief Sets the transformation matrix of the radiation source.
@@ -187,17 +197,23 @@ namespace RadiationSimulation {
 	protected:
 		std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> spectrum_probabilities; ///< Spectrum probabilities.
 		const float energy_lower_cut_eV; ///< Lower cut-off energy in electron volts.
-		RadFiled3D::HistogramVoxel<float> hist; ///< Histogram voxel for the generated spectrum.
-		std::vector<float> hist_buffer; ///< Buffer for the histogram.
-		mutable std::shared_mutex hist_mutex; ///< Mutex for thread-safe access to the histogram.
+		double lower_cut_probability; ///< Share of the spectrum below the lower cut, which is never sampled.
+		/// Generated energies per 1 keV bin, bin i centred at i keV and the last bin also holding everything above.
+		/// 64-bit atomic counts: exact beyond 2^24 per bin, and no lock between the workers.
+		std::vector<std::atomic<uint64_t>> generated_counts;
+		static constexpr float generated_bin_width_eV = 1e+3f;
 	public:
+		static constexpr float max_energy_lower_cut_eV = 5e+3f; ///< Highest allowed lower cut: photons above 5 keV are never cut.
+
 		/**
 		 * @brief Constructor for XRaySpectrumSource.
 		 * @param spectrum_probabilities Spectrum probabilities.
 		 * @param shape Shape of the radiation source.
-		 * @param energy_lower_cut_eV Lower cut-off energy in electron volts.
+		 * @param energy_lower_cut_eV Lower cut-off energy in electron volts; the spectrum below it is not sampled. At most
+		 *        max_energy_lower_cut_eV, so no photon above 5 keV is ever cut.
+		 * @param max_energy_eV Upper end of the generated-spectrum histogram; must reach the spectrum's maximum.
 		 */
-		XRaySpectrumSource(std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> spectrum_probabilities, std::unique_ptr<ISourceShape> shape, float energy_lower_cut_eV = 3e+4, float max_energy_eV = 0.f);
+		XRaySpectrumSource(std::shared_ptr<Statistics::ProbabilityDensityFunction<float>> spectrum_probabilities, std::unique_ptr<ISourceShape> shape, float energy_lower_cut_eV = 0.f, float max_energy_eV = 0.f);
 
 		/**
 		 * @brief Destructor for XRaySpectrumSource.
@@ -211,16 +227,23 @@ namespace RadiationSimulation {
 		virtual size_t getPossibilitiesCount() const override;
 
 		/**
-		 * @brief Draws the energy of the radiation.
+		 * @brief Draws the energy of the radiation from the spectrum above the lower cut.
+		 * @param uniform Source of the random numbers.
 		 * @return The energy of the radiation in electron volts.
 		 */
-		virtual float drawEnergy_eV() override;
+		virtual float drawEnergy_eV(const UniformRandom& uniform) override;
 
-		/**
-		 * @brief Gets the generated spectrum.
-		 * @return The generated spectrum as a HistogramVoxel.
-		 */
-		const RadFiled3D::HistogramVoxel<float>& getGeneratedSpectrum() const { return this->hist; }
+		/** The loaded spectrum. */
+		const Statistics::ProbabilityDensityFunction<float>& getSpectrum() const { return *this->spectrum_probabilities; }
+
+		/** Number of bins of the generated spectrum. */
+		size_t getGeneratedSpectrumBins() const { return this->generated_counts.size(); }
+
+		/** Width of the generated spectrum's bins in eV. */
+		float getGeneratedSpectrumBinWidth_eV() const { return generated_bin_width_eV; }
+
+		/** Snapshot of the generated energies per bin; safe while workers keep drawing. */
+		std::vector<uint64_t> getGeneratedCounts() const;
 	};
 
 	/**

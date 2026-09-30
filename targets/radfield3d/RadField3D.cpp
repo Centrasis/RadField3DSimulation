@@ -1,5 +1,6 @@
 #include "RadiationSimulation.hpp"
 #include "GeometryLoader.hpp"
+#include "FieldAppend.hpp"
 #include <stdio.h>
 #include <iostream>
 #include <cstdlib>
@@ -7,12 +8,13 @@
 #include <sstream>
 #include <chrono>
 #include <G4ios.hh>
-#include <RadFiled3D/storage/RadiationFieldStore.hpp>
-#include <RadFiled3D/GridTracer.hpp>
-#include <RadFiled3D/helpers/Typing.hpp>
+#include <radfiled3d/storage/radiation_field_store.hpp>
+#include <radfiled3d/grid_tracer.hpp>
+#include <radfiled3d/helpers/typing.hpp>
 #include <Geant4/G4World.hpp>
 #include <G4SystemOfUnits.hh>
 #include <Geant4/G4RadiationFieldDetector.hpp>
+#include <Geant4/G4PhysicsList.hpp>
 #if defined _WIN32 || defined _WIN64
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -29,24 +31,35 @@ using namespace RadiationSimulation;
 namespace G4 = RadiationSimulation::Geant4;
 
 
-void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, fs::path out_path, size_t n_particles, std::shared_ptr<XRaySource> source, const std::string& geometry_file, const std::string& spectrum_file, const glm::vec3& source_dir, float source_distance, float xray_energy, bool should_append_to_file, long long start_time, RadFiled3D::Typing::FieldShape field_shape) {
+// Seed of the run from the system time; the process id is mixed in (splitmix64 finalizer) so that runs started in the
+// same clock tick, e.g. on several cluster nodes, still get unrelated seeds.
+uint64_t time_based_seed() {
+	uint64_t z = static_cast<uint64_t>(std::hash<std::string>{}(unique_file_token())) + 0x9e3779b97f4a7c15ULL;
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+	z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+	return z ^ (z >> 31);
+}
+
+// Stores `field` into `out_path`. With `join_into_file`, the field is appended to an existing file (see
+// append_radiation_field); otherwise the file is replaced.
+void store_radiation_field(std::shared_ptr<radfiled3d::IRadiationField> field, fs::path out_path, size_t n_particles, std::shared_ptr<XRaySource> source, const std::string& geometry_file, const std::string& spectrum_file, const glm::vec3& source_dir, float source_distance, float xray_energy, bool join_into_file, long long start_time, radfiled3d::typing::FieldShape field_shape, uint64_t random_seed) {
 	long long end_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-	auto metadata = std::make_shared<RadFiled3D::Storage::V1::RadiationFieldMetadata>(
-		RadFiled3D::Storage::FiledTypes::V1::RadiationFieldMetadataHeader::Simulation(
+	auto metadata = std::make_shared<radfiled3d::storage::v1::RadiationFieldMetadata>(
+		radfiled3d::storage::filed_types::v1::RadiationFieldMetadataHeader::Simulation(
 			n_particles,
 			geometry_file,
-			"QGSP_BIC_HP+StdPhysics_Option4",
-			RadFiled3D::Storage::FiledTypes::V1::RadiationFieldMetadataHeader::Simulation::XRayTube(
+			G4::MedicalPhysicsList::getName(),
+			radfiled3d::storage::filed_types::v1::RadiationFieldMetadataHeader::Simulation::XRayTube(
 				source_dir,
 				-source_dir * source_distance,
 				xray_energy,
 				spectrum_file
 			)
 		),
-		RadFiled3D::Storage::FiledTypes::V1::RadiationFieldMetadataHeader::Software(
+		radfiled3d::storage::filed_types::v1::RadiationFieldMetadataHeader::Software(
 			"RadField3D",
-			"1.1.0",
+			"1.2.0",
 			"https://github.com/Centrasis/RadField3DSimulation",
 			"HEAD"
 		)
@@ -54,39 +67,44 @@ void store_radiation_field(std::shared_ptr<RadFiled3D::IRadiationField> field, f
 
 	const RadiationSimulation::ISourceShape* actual_field_shape = source->getShape();
 	XRaySpectrumSource* spectrum_source = dynamic_cast<XRaySpectrumSource*>(source.get());
-	RadFiled3D::HistogramVoxel<float> spectrum = spectrum_source->getGeneratedSpectrum();
-	metadata->set_dynamic_custom_metadata<RadFiled3D::HistogramVoxel<float>>("tube_spectrum", RadFiled3D::HistogramVoxel<float>(spectrum.get_bins(), spectrum.get_histogram_bin_width(), nullptr));
-	memcpy(metadata->get_dynamic_metadata<RadFiled3D::HistogramVoxel<float>>("tube_spectrum").get_histogram().data(), spectrum.get_histogram().data(), sizeof(float) * spectrum.get_bins());
+	// counted in 64 bit; float only rounds large counts here, it does not clip them
+	const std::vector<uint64_t> generated_counts = spectrum_source->getGeneratedCounts();
+	metadata->set_dynamic_custom_metadata<radfiled3d::HistogramVoxel<float>>("tube_spectrum", radfiled3d::HistogramVoxel<float>(generated_counts.size(), spectrum_source->getGeneratedSpectrumBinWidth_eV(), nullptr));
+	auto tube_spectrum = metadata->get_dynamic_metadata<radfiled3d::HistogramVoxel<float>>("tube_spectrum").get_histogram();
+	for (size_t i = 0; i < generated_counts.size(); i++)
+		tube_spectrum[i] = static_cast<float>(generated_counts[i]);
 	uint64_t duration = end_time - start_time;
 	metadata->add_dynamic_metadata<uint64_t>("simulation_duration_s", duration);
 	metadata->add_dynamic_metadata<uint8_t>("xray_field_shape", static_cast<uint8_t>(field_shape));
+	metadata->add_dynamic_metadata<uint64_t>("random_seed", random_seed);
 
 	float angle_deg = 0.f;
 	glm::vec2 field_dims_or_angles;
-	if (field_shape == RadFiled3D::Typing::FieldShape::Cone) {
+	if (field_shape == radfiled3d::typing::FieldShape::Cone) {
 		angle_deg = dynamic_cast<const RadiationSimulation::ConeSourceShape*>(actual_field_shape)->getOpeningAngleDegrees();
 		metadata->add_dynamic_metadata<float>("xray_tube_opening_angle_deg", angle_deg);
 	}
-	if (field_shape == RadFiled3D::Typing::FieldShape::Rectangle) {
+	if (field_shape == radfiled3d::typing::FieldShape::Rectangle) {
 		field_dims_or_angles = dynamic_cast<const RadiationSimulation::RectangleSourceShape*>(actual_field_shape)->getFieldSizeMeters();
 		metadata->add_dynamic_metadata<glm::vec2>("xray_tube_field_rect_dimensions_m", field_dims_or_angles);
 	}
-	if (field_shape == RadFiled3D::Typing::FieldShape::Ellipsis) {
+	if (field_shape == radfiled3d::typing::FieldShape::Ellipsis) {
 		field_dims_or_angles = dynamic_cast<const RadiationSimulation::EllipsoidSourceShape*>(actual_field_shape)->getOpeningAnglesDegrees();
 		metadata->add_dynamic_metadata<glm::vec2>("xray_tube_field_ellipsis_opening_angles_deg", field_dims_or_angles);
 	}
 
 	// The voxelized geometry is written only when the file is created; later stores update the radiation channels and
 	// metadata and keep the file's geometry channel.
-	if (!fs::exists(out_path))
-		World::Get()->get_radiation_field_detector()->add_geometry_channel_to(*std::static_pointer_cast<RadFiled3D::CartesianRadiationField>(field));
+	const bool file_exists = fs::exists(out_path);
+	if (!file_exists)
+		World::Get()->get_radiation_field_detector()->add_geometry_channel_to(*std::static_pointer_cast<radfiled3d::CartesianRadiationField>(field));
 
-	if (should_append_to_file) {
-		RadFiled3D::Storage::FieldStore::join(field, metadata, out_path.string(), RadFiled3D::Storage::FieldJoinMode::Add, RadFiled3D::Storage::FieldJoinCheckMode::MetadataSimulationSimilar);
-	}
-	else {
-		RadFiled3D::Storage::FieldStore::replace(field, metadata, out_path.string());
-	}
+	if (join_into_file)
+		append_radiation_field(std::static_pointer_cast<radfiled3d::CartesianRadiationField>(field), metadata, out_path.string());
+	else if (file_exists)
+		radfiled3d::storage::FieldStore::replace(field, metadata, out_path.string());
+	else
+		store_radiation_field_atomically(field, metadata, out_path.string());
 }
 
 
@@ -100,7 +118,7 @@ try {
 	float source_angle_phi = 0.f;
 	float source_angle_theta = 0.f;
 	float source_distance = 1.f;
-	RadFiled3D::Typing::FieldShape field_shape;
+	radfiled3d::typing::FieldShape field_shape;
 	glm::vec3 source_opening_angle = glm::vec3(20.f);
 	glm::vec3 world_dim = glm::vec3(1.f);
 #ifdef WITH_GEANT4_UIVIS
@@ -109,6 +127,7 @@ try {
 	bool should_append_to_file = false;
 	fs::path out_path;
 	size_t particle_count = 1e+6;
+	size_t autosave_interval = 1e+6;
 	float voxel_dim = 0.1f;
 	float energy_resolution = 1e+3;
 	float statistical_error_threshold = 0.1f;
@@ -116,9 +135,13 @@ try {
 	std::string source_shape = "cone";
 	std::string world_material = "Air";
 	int cpu_count = -1;
+
 	size_t angular_phi_segments = 0;
+	uint32_t directional_lobes = 0;
 	size_t angular_theta_segments = 0;
-	RadFiled3D::GridTracerAlgorithm tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING;
+	// every voxel a step touches counts; SAMPLING misses voxels an oblique step only clips (about 7 % fewer hits at 10°)
+	radfiled3d::GridTracerAlgorithm tracing_algorithm = radfiled3d::GridTracerAlgorithm::LINETRACING;
+	bool path_length_weighting = true;
 
 
 	if (argc <= 1 || std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help") {
@@ -133,12 +156,14 @@ try {
 		G4cout << "  --voxel-dim: Voxel dimensions in m" << G4endl;
 		G4cout << "  --world-dim: World dimensions in m 'x y z'" << G4endl;
 		G4cout << "  --angular-resolution: Optionally enables an extra layer that captures the angular distribution of the flux in each voxel." << G4endl;
+		G4cout << "  --path-length-weighting: 'on' (default) or 'off'. With the line tracer, flux, spectrum, angular bins and vMF lobes weight every voxel a photon enters by its path length inside it (track-length estimate, flux unit: path length in voxel edges per primary); 'off' counts every touched voxel once (as before 1.2.0)" << G4endl;
+		G4cout << "  --directional-lobes: Maximum number of von Mises-Fisher lobes per voxel (1-8) learned during the run and stored as layer 'vmf_lobes' of scatter_field. Default: 0 (off)" << G4endl;
 		G4cout << "  --source-distance: Distance of the source in m" << G4endl;
 		G4cout << "  --source-shape: Type of the radiation field shape. Must be one of ['cone', 'rectangle', 'ellipsoid']" << G4endl;
 		G4cout << "  --spectrum: Path to an spectrum file when energy is not explicitly set" << G4endl;
 		G4cout << "  --source-opening-angle: Opening angle of the source in deg" << G4endl;
 		G4cout << "  --energy-resolution: Resolution of the energy scroring. Effectively equals the bin width of the spectra histograms in eV. Default: 1 keV" << G4endl;
-		G4cout << "  --tracing-algorithm: Algorithm to use for the grid tracing. Must be one of ['sampling', 'bresenham', 'linetracing']" << G4endl;
+		G4cout << "  --tracing-algorithm: Algorithm to use for the grid tracing. Must be one of ['sampling', 'bresenham', 'linetracing']. Default: linetracing" << G4endl;
 		G4cout << "  --world-material: Material of the world. Default: Air" << G4endl;
 		G4cout << "  --statistical-error-threshold: Threshold of the statistical error to stop the simulation early. Default: 0.1 (10%)" << G4endl;
 		G4cout << "  --statistical-error-enforcement-ratio: Ratio of voxels that must be below the statistical error threshold to stop the simulation early. Default: 0.95 (95%)" << G4endl;
@@ -149,6 +174,7 @@ try {
 #endif
 		G4cout << "  --append: Flag if this simulation data should be appended to an potentially existing file using the SimulationSimilar policy" << G4endl;
 		G4cout << "  --cpu-count: Number of CPU cores to use. Default: -1 (all available cores)" << G4endl;
+		G4cout << "  --autosave-interval: Store the field every N particles. Default: 1e6, 0 disables auto-saves" << G4endl;
 		return 0;
 	}
 
@@ -198,13 +224,21 @@ try {
 				out_path = fs::absolute(out_path);
 			continue;
 		}
+		if (arg == "--path-length-weighting") {
+			if (value != "on" && value != "off") {
+				G4cerr << "--path-length-weighting must be 'on' or 'off', got: " << value << ". Aborting..." << G4endl;
+				return -1;
+			}
+			path_length_weighting = value == "on";
+			continue;
+		}
 		if (arg == "--tracing-algorithm") {
 			if (value == "sampling")
-				tracing_algorithm = RadFiled3D::GridTracerAlgorithm::SAMPLING;
+				tracing_algorithm = radfiled3d::GridTracerAlgorithm::SAMPLING;
 			else if (value == "bresenham")
-				tracing_algorithm = RadFiled3D::GridTracerAlgorithm::BRESENHAM;
+				tracing_algorithm = radfiled3d::GridTracerAlgorithm::BRESENHAM;
 			else if (value == "linetracing")
-				tracing_algorithm = RadFiled3D::GridTracerAlgorithm::LINETRACING;
+				tracing_algorithm = radfiled3d::GridTracerAlgorithm::LINETRACING;
 			else {
 				G4cerr << "Unknown tracing algorithm: " << value << ". Aborting..." << G4endl;
 				return -1;
@@ -218,6 +252,21 @@ try {
 		}
 		if (arg == "--cpu-count") {
 			cpu_count = std::stoi(value);
+			continue;
+		}
+		if (arg == "--autosave-interval") {
+			const double interval = std::stod(value);
+			if (!(interval >= 0.0))
+				throw std::invalid_argument("--autosave-interval must be >= 0, got " + value);
+			autosave_interval = static_cast<size_t>(interval);
+			continue;
+		}
+
+		if (arg == "--directional-lobes") {
+			const int lobes = std::stoi(value);
+			if (lobes < 0 || lobes > 8)
+				throw std::invalid_argument("--directional-lobes must lie in [0, 8], got " + value);
+			directional_lobes = static_cast<uint32_t>(lobes);
 			continue;
 		}
 		if (arg == "--angular-resolution") {
@@ -405,6 +454,9 @@ try {
 		G4cout << "Initialize radiation simulation handler to use all available threads." << G4endl;
 	}
 	G4::RadiationSimulationHandler* simulation_handler = RadiationSimulator::initialize(cpu_count).get();
+	const uint64_t random_seed = time_based_seed();
+	RadiationSimulator::set_random_seed(random_seed);
+	G4cout << "Random seed: " << random_seed << G4endl;
 	RadiationSimulator::set_world_info(std::make_unique<WorldInfo>(world_material, world_dim));
 
 	std::vector<std::shared_ptr<Geometry::Mesh>> meshes;
@@ -425,15 +477,15 @@ try {
 
 	if (source_shape == "cone") {
 		shape = std::make_unique<ConeSourceShape>(source_opening_angle.x);
-		field_shape = RadFiled3D::Typing::FieldShape::Cone;
+		field_shape = radfiled3d::typing::FieldShape::Cone;
 		G4cout << "Using source opening angle: " << source_opening_angle.x << "°" << G4endl;
 	} else if (source_shape == "rectangle") {
 		shape = std::make_unique<RectangleSourceShape>(glm::vec2(source_opening_angle.x, source_opening_angle.y), source_distance);
-		field_shape = RadFiled3D::Typing::FieldShape::Rectangle;
+		field_shape = radfiled3d::typing::FieldShape::Rectangle;
 		G4cout << "Using source rectangular dimensions: " << source_opening_angle.x << "m x " << source_opening_angle.y << "m" << G4endl;
 	} else if (source_shape == "ellipsoid") {
 		shape = std::make_unique<EllipsoidSourceShape>(glm::vec2(source_opening_angle.x, source_opening_angle.y));
-		field_shape = RadFiled3D::Typing::FieldShape::Ellipsis;
+		field_shape = radfiled3d::typing::FieldShape::Ellipsis;
 		G4cout << "Using source ellipsoid shape with angles: " << source_opening_angle.x << "° x " << source_opening_angle.y << "°" << G4endl;
 	} else {
 		G4cout << "Unknown source shape: " << source_shape << ". Aborting..." << G4endl;
@@ -497,37 +549,37 @@ try {
 		energy_resolution * eV,
 		statistical_error_threshold,
 		statistical_error_enforcement_ratio,
-		glm::uvec2(angular_phi_segments, angular_theta_segments)
+		glm::uvec2(angular_phi_segments, angular_theta_segments),
+		directional_lobes
 	);
 
 	G4cout << "Using world dimensions: " << world_dim.x << "m x " << world_dim.y << "m x " << world_dim.z << "m" << G4endl;
 	G4cout << "Using world material: " << world_material << G4endl;
-	G4cout << "Using voxel grid tracer: " << (tracing_algorithm == RadFiled3D::GridTracerAlgorithm::SAMPLING ? "SAMPLING" : (tracing_algorithm == RadFiled3D::GridTracerAlgorithm::BRESENHAM ? "BRESENHAM" : "LINETRACING")) << G4endl;
+	G4cout << "Using voxel grid tracer: " << (tracing_algorithm == radfiled3d::GridTracerAlgorithm::SAMPLING ? "SAMPLING" : (tracing_algorithm == radfiled3d::GridTracerAlgorithm::BRESENHAM ? "BRESENHAM" : "LINETRACING"))
+		<< ((tracing_algorithm == radfiled3d::GridTracerAlgorithm::LINETRACING && path_length_weighting) ? " (path-length weighted)" : "") << G4endl;
 	G4cout << "Start simulating with voxel dimension: " << voxel_dim << "m and an particle count of " << particle_count << G4endl << G4endl;
 
 	if (!should_append_to_file && fs::exists(out_path)) {
 		fs::remove(out_path);
 	}
 
-	if (should_append_to_file)
-	{
-		// enable_file_lock_synchronization is flagged experimental/deprecated upstream; it is only needed for
-		// the concurrent-append path, which is the one case that relies on it.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-		RadFiled3D::Storage::FieldStore::enable_file_lock_synchronization(true);
-#pragma GCC diagnostic pop
-	}
+	// Auto-saves hold this run's cumulative result. When appending, they go to a checkpoint only this run writes, so the
+	// output file receives this run exactly once (joined at the end) and a crashed run leaves its progress there.
+	const fs::path checkpoint_path = should_append_to_file ? fs::path(out_path.string() + ".partial-" + unique_file_token()) : out_path;
 
 	G4cout << "Simulating...";
 	G4cout << G4endl << "Writing field to: " << out_path.string() << G4endl;
+	if (should_append_to_file)
+		G4cout << "Auto-saves of this run go to: " << checkpoint_path.string() << " (joined into the field when the run finishes)" << G4endl;
 	size_t last_particle_count = 0;
 	long long start_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	RadiationSimulator::add_callback_every_n_particles([&](std::shared_ptr<RadFiled3D::IRadiationField> field, size_t n_particles) {
-		G4cout << "Simulation auto save after " << n_particles << " particles" << G4endl;
-		last_particle_count = n_particles;
-		store_radiation_field(field, out_path, n_particles, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, should_append_to_file, start_time, field_shape);
-	}, 1e+6);
+	if (autosave_interval > 0) {
+		RadiationSimulator::add_callback_every_n_particles([&](std::shared_ptr<radfiled3d::IRadiationField> field, size_t n_particles) {
+			G4cout << "Simulation auto save after " << n_particles << " particles" << G4endl;
+			last_particle_count = n_particles;
+			store_radiation_field(field, checkpoint_path, n_particles, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, false, start_time, field_shape, random_seed);
+		}, autosave_interval);
+	}
 
 #ifdef WITH_GEANT4_UIVIS
 	if (show_gui) {
@@ -536,9 +588,21 @@ try {
 	}
 #endif
 
-	auto field = RadiationSimulator::simulate_radiation_field(particle_count, tracing_algorithm);
+	auto field = RadiationSimulator::simulate_radiation_field(particle_count, tracing_algorithm, path_length_weighting);
 	last_particle_count = G4::World::Get()->get_radiation_field_detector()->get_number_of_tracked_particles();
-	store_radiation_field(field, out_path, last_particle_count, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, should_append_to_file, start_time, field_shape);
+	try {
+		store_radiation_field(field, out_path, last_particle_count, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, should_append_to_file, start_time, field_shape, random_seed);
+	}
+	catch (const std::exception&) {
+		if (checkpoint_path == out_path)
+			throw;
+		// the join failed and left the output file unchanged: keep this run's result instead of losing it
+		store_radiation_field(field, checkpoint_path, last_particle_count, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, false, start_time, field_shape, random_seed);
+		std::cerr << "Could not append to " << out_path.string() << "; this run's field was kept in " << checkpoint_path.string() << std::endl;
+		throw;
+	}
+	if (checkpoint_path != out_path && fs::exists(checkpoint_path))
+		fs::remove(checkpoint_path);
 
 	G4cout << G4endl << "Wrote field to: " << out_path.string() << G4endl;
 

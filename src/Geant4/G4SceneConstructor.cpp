@@ -8,6 +8,7 @@
 #include <G4LogicalVolume.hh>
 #include "Geant4/G4World.hpp"
 #include "Geant4/G4RadiationFieldDetector.hpp"
+#include <algorithm>
 #include <stdexcept>
 #include <functional>
 #include <glm/glm.hpp>
@@ -33,6 +34,30 @@ void RadiationSimulation::Geant4::SceneConstructor::place_mesh(std::shared_ptr<G
 	for (auto& child : mesh->getChildren()) {
 		this->place_mesh(child, mesh->getVolume().get());
 	}
+}
+
+std::vector<const G4Material*> Geant4::SceneConstructor::patient_materials() const
+{
+	std::vector<const G4Material*> patient, other = { this->world_material };
+	std::function<void(const std::shared_ptr<Geant4::Mesh>&)> sort = [&](const std::shared_ptr<Geant4::Mesh>& gm) {
+		if (gm->getMesh()->isPatient()) {
+			for (const G4Material* material : gm->getMaterials())
+				if (std::find(patient.begin(), patient.end(), material) == patient.end())
+					patient.push_back(material);
+			return;
+		}
+		other.push_back(gm->getVolume()->GetMaterial());
+		for (const auto& child : gm->getChildren())
+			sort(child);
+	};
+	for (const auto& gm : this->g4meshes)
+		sort(gm);
+	// the detector tells the patient apart by material: one shared with other geometry or the world would stop scoring there too
+	for (const G4Material* material : patient)
+		if (std::find(other.begin(), other.end(), material) != other.end())
+			throw std::runtime_error("Material " + material->GetName() + " is used by the patient and by other geometry or the world. "
+				"Nothing is scored inside the patient's materials, so they must not be used anywhere else.");
+	return patient;
 }
 
 Geant4::SceneConstructor::SceneConstructor(const std::vector<std::shared_ptr<Geometry::Mesh>>& meshes)
@@ -123,7 +148,7 @@ G4VPhysicalVolume* Geant4::SceneConstructor::Construct()
 	}
 
 	if (RadiationSimulation::World::Get()->get_radiation_field_detector()) {
-		RadiationSimulation::World::Get()->get_radiation_field_detector()->SetUp();
+		RadiationSimulation::World::Get()->get_radiation_field_detector()->SetUp(this->patient_materials());
 	}
 
 	return worldPhys;

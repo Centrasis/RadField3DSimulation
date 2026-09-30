@@ -2,7 +2,7 @@
 #include <G4TessellatedSolid.hh>
 #include "Geometry.hpp"
 #include "Voxelization.hpp"
-#include <RadFiled3D/RadiationField.hpp>
+#include <radfiled3d/radiation_field.hpp>
 #include <memory>
 #include <G4PolyhedronArbitrary.hh>
 
@@ -34,6 +34,8 @@ namespace RadiationSimulation::Geant4 {
 		const G4RotationMatrix& getRotation() const { return this->rotation; }
 		double getLengthUnit() const { return this->length_unit; }
 		inline const std::vector<std::shared_ptr<Mesh>>& getChildren() const { return this->children; }
+		/** Materials of this volume and of all its children, each once, as set by the SceneConstructor. */
+		std::vector<const G4Material*> getMaterials() const;
 	};
 
 	/** Surface of a placed Geant4::Mesh volume: its tessellated facets moved into the world by all placements from the
@@ -59,5 +61,5 @@ namespace RadiationSimulation::Geant4 {
 	* @param world_volume The logical world volume of the constructed Geant4 scene.
 	* @param max_threads Maximum number of worker threads. -1 uses all available cores.
 	*/
-	void add_geometry_channel(RadFiled3D::CartesianRadiationField& field, const G4LogicalVolume& world_volume, int max_threads = -1);
+	void add_geometry_channel(radfiled3d::CartesianRadiationField& field, const G4LogicalVolume& world_volume, int max_threads = -1);
 }

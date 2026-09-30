@@ -1,5 +1,5 @@
 #include "Geant4/G4RadiationFieldDetector.hpp"
-#include "RadFiled3D/RadiationField.hpp"
+#include "radfiled3d/radiation_field.hpp"
 #include <cassert>
 #include <G4Box.hh>
 #include <G4LogicalVolume.hh>
@@ -16,8 +16,8 @@
 #include <G4RunManager.hh>
 #include "World.hpp"
 #include "Geometry.hpp"
-#include "G4NistManager.hh"
 #include "G4Gamma.hh"
+#include "G4VProcess.hh"
 #include "G4Electron.hh"
 #include "G4Threading.hh"
 
@@ -35,14 +35,13 @@ using namespace RadiationSimulation;
 using namespace RadiationSimulation::Geometry;
 using namespace RadiationSimulation::Geant4;
 
-static std::string AIR_NAME = "G4_AIR";
 
 void RadiationSimulation::Geant4::RadiationFieldDetector::evaluate_field()
 {
 	// Diagnostics only: the double accumulators stay untouched; normalization and the fp32
 	// conversion happen in get_normalized_field_copy(), which every store path uses.
 	const size_t primary_particles = this->tracked_events_counter;
-	std::shared_ptr<RadFiled3D::VoxelGridBuffer> scatter_buffer = this->field->get_channel("scatter_field");
+	std::shared_ptr<radfiled3d::VoxelGridBuffer> scatter_buffer = this->field->get_channel("scatter_field");
 	// iterate the BUFFER's voxel count: the field's count can exceed it by one per axis for
 	// dimension ratios just below an integer (FLT_EPSILON asymmetry in RadFiled3D) — indexing
 	// by the field count would read/write past the layer allocations.
@@ -50,7 +49,7 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::evaluate_field()
 	double total_hits = 0.0;
 	double max_hits = 0.0;
 	for (size_t i = 0; i < n; i++) {
-		const double hits = scatter_buffer->get_voxel_flat<RadFiled3D::ScalarVoxel<double>>("flux", i).get_data();
+		const double hits = scatter_buffer->get_voxel_flat<radfiled3d::ScalarVoxel<double>>("flux", i).get_data();
 		total_hits += hits;
 		if (hits > max_hits)
 			max_hits = hits;
@@ -64,37 +63,47 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::evaluate_field()
 		G4cout << "WARNING: On average there wasn't at least one voxel hit per particle. This is an indication of an unmatching tracking volume size or errorneous scene definitions. Average hits per voxel was: " << accumulated_hits_per_particle << G4endl;
 }
 
-std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::Geant4::RadiationFieldDetector::get_normalized_field_copy()
+std::shared_ptr<radfiled3d::IRadiationField> RadiationSimulation::Geant4::RadiationFieldDetector::get_normalized_field_copy()
 {
 	// Builds the STORED field: per-primary normalization of the double accumulators, written
-	// into fresh fp32 layers. The scoring field itself stays untouched.
+	// into fresh fp32 layers. The scoring field itself stays untouched. Scoring is paused meanwhile (auto-saves run
+	// during the simulation), so no counts of events beyond `primary_particles` enter the copy.
+	this->scoring_gate.pause();
+	struct Resume { ScoringGate& gate; ~Resume() { gate.resume(); } } resume{ this->scoring_gate };
 	const size_t primary_particles = this->tracked_events_counter;
 	const double norm = (primary_particles > 0) ? 1.0 / static_cast<double>(primary_particles) : 0.0;
-	auto copy = std::make_shared<RadFiled3D::CartesianRadiationField>(this->field->get_field_dimensions(), this->field->get_voxel_dimensions());
+	auto copy = std::make_shared<radfiled3d::CartesianRadiationField>(this->field->get_field_dimensions(), this->field->get_voxel_dimensions());
 
 	struct ChannelPair { const char* name; ChannelBuffers& src; };
 	ChannelPair channels[2] = { {"scatter_field", this->buffers.scatter_field}, {"direct_beam", this->buffers.xray_beam} };
 
 	for (auto& [name, src] : channels) {
-		RadFiled3D::VoxelGridBuffer& in = src.buffer;
+		radfiled3d::VoxelGridBuffer& in = src.buffer;
 		// iterate the BUFFER's voxel count, not the field's (FLT_EPSILON asymmetry — see evaluate_field)
 		const size_t n = in.get_voxel_count();
-		auto& hist0 = in.get_voxel_flat<RadFiled3D::HistogramVoxel<double>>("spectrum", 0);
+		auto& hist0 = in.get_voxel_flat<radfiled3d::HistogramVoxel<double>>("spectrum", 0);
 		const size_t bins = hist0.get_bins();
 		const bool has_angular = in.has_layer("angular_flux");
 
-		RadFiled3D::VoxelGridBuffer* out = static_cast<RadFiled3D::VoxelGridBuffer*>(copy->add_channel(name).get());
+		radfiled3d::VoxelGridBuffer* out = static_cast<radfiled3d::VoxelGridBuffer*>(copy->add_channel(name).get());
 		out->add_layer<float>("error", 1.f, "Variance");
-		out->add_layer<float>("flux", 0.f, "counts / primary_particles");
-		out->add_custom_layer<RadFiled3D::HistogramVoxel<float>>("spectrum", RadFiled3D::HistogramVoxel<float>(bins, static_cast<float>(hist0.get_histogram_bin_width()), nullptr), 0.f, "eV");
+		const char* flux_unit = this->path_length_weighting ? "voxel edges / primary_particles" : "counts / primary_particles";
+		out->add_layer<float>("flux", 0.f, flux_unit);
+		out->add_custom_layer<radfiled3d::HistogramVoxel<float>>("spectrum", radfiled3d::HistogramVoxel<float>(bins, static_cast<float>(hist0.get_histogram_bin_width()), nullptr), 0.f, "eV");
 		if (has_angular)
-			out->add_custom_layer<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", RadFiled3D::AngularResolvedVoxel<float>(in.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<double>>("angular_flux", 0).get_segments(), nullptr), 0.f, "counts / primary_particles");
+			out->add_custom_layer<radfiled3d::AngularResolvedVoxel<float>>("angular_flux", radfiled3d::AngularResolvedVoxel<float>(in.get_voxel_flat<radfiled3d::AngularResolvedVoxel<double>>("angular_flux", 0).get_segments(), nullptr), 0.f, flux_unit);
+		if (src.vmf) {
+			const uint32_t lobes = src.vmf->get_lobes();
+			out->add_custom_layer<radfiled3d::VMFMixtureVoxel<float>>("vmf_lobes", radfiled3d::VMFMixtureVoxel<float>(lobes, nullptr), 0.f, "fraction of the voxel flux");
+			for (size_t i = 0; i < n; i++)
+				src.vmf->write_lobes(i, &out->get_voxel_flat<radfiled3d::VMFMixtureVoxel<float>>("vmf_lobes", i).get_data());
+		}
 
 		for (size_t i = 0; i < n; i++) {
-			out->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", i) = static_cast<float>(in.get_voxel_flat<RadFiled3D::ScalarVoxel<double>>("flux", i).get_data() * norm);
+			out->get_voxel_flat<radfiled3d::ScalarVoxel<float>>("flux", i) = static_cast<float>(in.get_voxel_flat<radfiled3d::ScalarVoxel<double>>("flux", i).get_data() * norm);
 
-			const double* h_in = &in.get_voxel_flat<RadFiled3D::HistogramVoxel<double>>("spectrum", i).get_data();
-			float* h_out = &out->get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", i).get_data();
+			const double* h_in = &in.get_voxel_flat<radfiled3d::HistogramVoxel<double>>("spectrum", i).get_data();
+			float* h_out = &out->get_voxel_flat<radfiled3d::HistogramVoxel<float>>("spectrum", i).get_data();
 			double sum = 0.0;
 			for (size_t b = 0; b < bins; b++)
 				sum += h_in[b];
@@ -103,10 +112,10 @@ std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::Geant4::Radiat
 					h_out[b] = static_cast<float>(h_in[b] / sum);
 
 			if (has_angular) {
-				auto& a_in = in.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<double>>("angular_flux", i);
+				auto& a_in = in.get_voxel_flat<radfiled3d::AngularResolvedVoxel<double>>("angular_flux", i);
 				const size_t segments = a_in.get_total_segments();
 				const double* s_in = &a_in.get_data();
-				float* s_out = &out->get_voxel_flat<RadFiled3D::AngularResolvedVoxel<float>>("angular_flux", i).get_data();
+				float* s_out = &out->get_voxel_flat<radfiled3d::AngularResolvedVoxel<float>>("angular_flux", i).get_data();
 				for (size_t s = 0; s < segments; s++)
 					s_out[s] = static_cast<float>(s_in[s] * norm);
 			}
@@ -115,7 +124,7 @@ std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::Geant4::Radiat
 		for (size_t x = 0; x < out->get_voxel_counts().x; x++)
 			for (size_t y = 0; y < out->get_voxel_counts().y; y++)
 				for (size_t z = 0; z < out->get_voxel_counts().z; z++)
-					out->get_voxel<RadFiled3D::ScalarVoxel<float>>("error", x, y, z) = src.get_statistical_error(primary_particles, x, y, z);
+					out->get_voxel<radfiled3d::ScalarVoxel<float>>("error", x, y, z) = src.get_statistical_error(primary_particles, x, y, z);
 
 		out->set_statistical_error("spectrum", src.get_overall_statistical_error_estimate(primary_particles));
 	}
@@ -123,12 +132,12 @@ std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::Geant4::Radiat
 	return copy;
 }
 
-void RadiationSimulation::Geant4::RadiationFieldDetector::add_geometry_channel_to(RadFiled3D::CartesianRadiationField& field) const
+void RadiationSimulation::Geant4::RadiationFieldDetector::add_geometry_channel_to(radfiled3d::CartesianRadiationField& field) const
 {
 	if (!this->geometry || !this->geometry->has_channel("geometry"))
 		return;
-	const std::shared_ptr<RadFiled3D::VoxelGridBuffer> source = this->geometry->get_channel("geometry");
-	RadFiled3D::VoxelGridBuffer* out = static_cast<RadFiled3D::VoxelGridBuffer*>(field.add_channel("geometry").get());
+	const std::shared_ptr<radfiled3d::VoxelGridBuffer> source = this->geometry->get_channel("geometry");
+	radfiled3d::VoxelGridBuffer* out = static_cast<radfiled3d::VoxelGridBuffer*>(field.add_channel("geometry").get());
 	for (const std::string& layer : source->get_layers()) {
 		out->add_layer<uint8_t>(layer, 0, source->get_layer_unit(layer));
 		out->copy_layer_data(layer, *source);
@@ -137,61 +146,50 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::add_geometry_channel_t
 
 void RadiationSimulation::Geant4::RadiationFieldDetector::voxelize_geometry(const G4LogicalVolume& world_volume, int max_threads)
 {
-	auto geometry_field = std::make_shared<RadFiled3D::CartesianRadiationField>(this->field->get_field_dimensions(), this->field->get_voxel_dimensions());
+	auto geometry_field = std::make_shared<radfiled3d::CartesianRadiationField>(this->field->get_field_dimensions(), this->field->get_voxel_dimensions());
 	Geant4::add_geometry_channel(*geometry_field, world_volume, max_threads);
 	this->geometry = geometry_field;
 }
 
-void RadiationSimulation::Geant4::RadiationFieldDetector::score_step_for(const G4Step* step, const std::vector<size_t>& voxel_indices, TrackStage stage)
+void RadiationSimulation::Geant4::RadiationFieldDetector::score_step_for(const G4Step* step, const glm::vec3& p1, const glm::vec3& p2, const std::vector<radfiled3d::TracedVoxel>& voxels, TrackStage stage)
 {
 	const float energy = static_cast<float>(step->GetTrack()->GetTotalEnergy());
-	auto p1 = step->GetPreStepPoint()->GetPosition();
-	auto p2 = step->GetPostStepPoint()->GetPosition();
-	auto track_line = Collisions::Line(
-		glm::vec3(p1.getX(), p1.getY(), p1.getZ()),
-		glm::vec3(p2.getX(), p2.getY(), p2.getZ())
-	);
-	const glm::vec3 direction = track_line.direction();
-
 	if (stage == TrackStage::SCATTER) {
-		this->buffers.scatter_field.score(energy, direction, voxel_indices);
+		this->buffers.scatter_field.score(energy, p1, p2, voxels);
 	} else if (stage == TrackStage::BEAM) {
-		this->buffers.xray_beam.score(energy, direction, voxel_indices);
+		this->buffers.xray_beam.score(energy, p1, p2, voxels);
 	}
 }
 
-RadiationSimulation::Geant4::RadiationFieldDetector::RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold, float statistical_error_enforcement_ratio, float statistical_error_enforcement_resolution, const glm::uvec2& angular_resolution)
-	: field(std::make_shared<RadFiled3D::CartesianRadiationField>(radiation_field_dimensions, radiation_field_voxel_dimensions)),
+RadiationSimulation::Geant4::RadiationFieldDetector::RadiationFieldDetector(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, size_t spectra_bins, double spectra_bin_width, float statistical_error_threshold, float statistical_error_enforcement_ratio, float statistical_error_enforcement_resolution, const glm::uvec2& angular_resolution, uint32_t directional_lobes)
+	: field(std::make_shared<radfiled3d::CartesianRadiationField>(radiation_field_dimensions, radiation_field_voxel_dimensions)),
 	  spectra_bins(spectra_bins),
 	  spectra_bin_width(spectra_bin_width),
 	  buffers(
-	      *static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("scatter_field").get()),
-		  *static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel("direct_beam").get()),
-		  static_cast<float>(spectra_bin_width), spectra_bins, angular_resolution
+	      *static_cast<radfiled3d::VoxelGridBuffer*>(field->add_channel("scatter_field").get()),
+		  *static_cast<radfiled3d::VoxelGridBuffer*>(field->add_channel("direct_beam").get()),
+		  static_cast<float>(spectra_bin_width), spectra_bins, angular_resolution, directional_lobes
 	  ),
 	  statistical_error_threshold(statistical_error_threshold),
 	  statistical_error_enforcement_ratio(statistical_error_enforcement_ratio)
 {
 	assert(this->field->get_voxel_counts().x > 0 && this->field->get_voxel_counts().y > 0 && this->field->get_voxel_counts().z > 0);
-	this->define_grid_tracer<RadFiled3D::SamplingGridTracer>();
+	this->define_grid_tracer<radfiled3d::SamplingGridTracer>();
 	this->tracked_events_counter = 0;
 	this->buffers.scatter_field.statistical_error_resolution = statistical_error_enforcement_resolution;
 }
 
-std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::Geant4::RadiationFieldDetector::evaluate()
+std::shared_ptr<radfiled3d::IRadiationField> RadiationSimulation::Geant4::RadiationFieldDetector::evaluate()
 {
 	// The scoring field accumulates in double; every consumer gets the normalized fp32 copy.
 	this->evaluate_field();
 	return this->get_normalized_field_copy();
 }
 
-void RadiationSimulation::Geant4::RadiationFieldDetector::SetUp()
+void RadiationSimulation::Geant4::RadiationFieldDetector::SetUp(const std::vector<const G4Material*>& patient_materials)
 {
 	std::unique_lock lock(this->global_detector_mutex);
-	if (this->air_material == NULL) {
-		G4NistManager* nist = G4NistManager::Instance();
-		this->air_material = nist->FindOrBuildMaterial(AIR_NAME);
-	}
+	this->patient_materials = patient_materials;
 }
 
 void RadiationSimulation::Geant4::RadiationFieldDetector::finalize(size_t particle_count)
@@ -206,7 +204,17 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::finalize(size_t partic
 		this->thread_contexts.clear();
 	this->buffers.reset();
 	this->tracked_events_counter = 0;
+	this->next_vmf_pass = VMF_FIRST_PASS;
 	this->is_tracking = true;
+}
+
+void RadiationSimulation::Geant4::RadiationFieldDetector::train_directional_lobes()
+{
+	this->scoring_gate.pause();
+	struct Resume { ScoringGate& gate; ~Resume() { gate.resume(); } } resume{ this->scoring_gate };
+	for (ChannelBuffers* channel : { &this->buffers.scatter_field, &this->buffers.xray_beam })
+		if (channel->vmf)
+			channel->vmf->m_step();
 }
 
 size_t RadiationSimulation::Geant4::RadiationFieldDetector::get_primary_particle_count() const
@@ -225,13 +233,6 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::UserSteppingAction(con
 		G4RunManager::GetRunManager()->AbortEvent();
 		G4RunManager::GetRunManager()->AbortRun(false);
 		return;
-	}
-
-	if (this->air_material == NULL) {
-		std::unique_lock lock(this->global_detector_mutex);
-		if (this->air_material == NULL) {
-			this->air_material = G4NistManager::Instance()->FindOrBuildMaterial(AIR_NAME);
-		}
 	}
 
 	const G4int thread_id = G4Threading::G4GetThreadId();
@@ -266,7 +267,18 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::UserSteppingAction(con
 		catch (const std::exception& e) {
 			G4cout << "Error in new particle callback: " << e.what() << G4endl;
 		}
+
+		if (this->buffers.scatter_field.vmf) {
+			// exactly one worker ends a pass (outside the scoring gate, which the M-step pauses)
+			size_t pass_end = this->next_vmf_pass.load();
+			if (this->tracked_events_counter >= pass_end && this->next_vmf_pass.compare_exchange_strong(pass_end, pass_end * 2))
+				this->train_directional_lobes();
+		}
 	}
+
+	// Everything below scores into the shared field; a snapshot pauses it (see get_normalized_field_copy).
+	this->scoring_gate.enter();
+	struct Leave { ScoringGate& gate; ~Leave() { gate.leave(); } } leave{ this->scoring_gate };
 
 	EventContext& event_context = thread_context_itr->second;
 	const size_t track_id = step->GetTrack()->GetTrackID();
@@ -291,21 +303,11 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::UserSteppingAction(con
 		glm::vec3(p1.getX(), p1.getY(), p1.getZ()),
 		glm::vec3(p2.getX(), p2.getY(), p2.getZ())
 	);
-	auto pre_mat = pre_step_point->GetMaterial();
-	auto post_mat = post_step_point->GetMaterial();
-
-	if (pre_mat != NULL && post_mat != NULL) {
-		if (pre_mat != post_mat && current_track_stage == TrackStage::SCATTER) {
-			if (post_mat != this->air_material) {
-				// if particle was just shortly leaving the model
-				current_track_stage = TrackStage::PATIENT;
-			}
-		}
-	}
-
-	if (current_track_stage == TrackStage::PATIENT && (post_mat == NULL || post_mat == this->air_material || (pre_mat != NULL && pre_mat == this->air_material))) {
+	// A step lies inside its pre-step material: inside the patient nothing is scored, whatever came in; what leaves is scatter.
+	if (this->is_patient(pre_step_point->GetMaterial()))
+		current_track_stage = TrackStage::PATIENT;
+	else if (current_track_stage == TrackStage::PATIENT)
 		current_track_stage = TrackStage::SCATTER;
-	}
 
 #ifdef WITH_GEANT4_UIVIS
 	G4VVisManager* visManager = G4VVisManager::GetConcreteInstance();
@@ -335,26 +337,25 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::UserSteppingAction(con
 	
 	if (current_track_stage != TrackStage::PATIENT) {
 		if (step->GetTrack()->GetParticleDefinition() == G4Gamma::Definition() && step->GetTrack()->GetTotalEnergy() > 0.0) {
-			const std::vector<size_t> voxel_indices = this->tracer->trace(
-				(track_line.p1 + this->buffers.scatter_field.half_field_dim) / glm::vec3(m),
-				(track_line.p2 + this->buffers.scatter_field.half_field_dim) / glm::vec3(m)
-			);
+			const glm::vec3 grid_p1 = (track_line.p1 + this->buffers.scatter_field.half_field_dim) / glm::vec3(m);
+			const glm::vec3 grid_p2 = (track_line.p2 + this->buffers.scatter_field.half_field_dim) / glm::vec3(m);
+			std::vector<radfiled3d::TracedVoxel> voxels;
+			if (this->path_length_weighting) {
+				voxels = this->tracer->trace_with_path_fractions(grid_p1, grid_p2);
+			} else {
+				for (size_t idx : this->tracer->trace(grid_p1, grid_p2))
+					voxels.push_back({ idx, 1.f, true, false });
+			}
 
-			this->score_step_for(step, voxel_indices, current_track_stage);
+			this->score_step_for(step, grid_p1, grid_p2, voxels, current_track_stage);
 		}
 	}
-	
-	if (pre_mat != NULL && post_mat != NULL) {
-		if (pre_mat != post_mat) {
-			if (pre_mat == this->air_material && current_track_stage != TrackStage::PATIENT) {
-				// if particle is entering the model
-				current_track_stage = TrackStage::PATIENT;
-			}
-			else if (post_mat == this->air_material && current_track_stage != TrackStage::SCATTER) {
-				// if particle is leaving the model
-				current_track_stage = TrackStage::SCATTER;
-			}
-		}
+
+	// A beam photon that interacts no longer comes from the focal spot: from here on it is scatter.
+	if (current_track_stage == TrackStage::BEAM) {
+		const G4VProcess* process = post_step_point->GetProcessDefinedStep();
+		if (process != nullptr && process->GetProcessType() == fElectromagnetic)
+			current_track_stage = TrackStage::SCATTER;
 	}
 
 	if (this->statistical_error_threshold > 0.f && this->tracked_events_counter % 50000 == 0 && current_track_stage == TrackStage::SCATTER) {
@@ -389,8 +390,6 @@ void RadiationSimulation::Geant4::RadiationFieldAction::Build() const
 	// across threads corrupts the heap -> non-deterministic mid-run segfault. Build a fresh generator per
 	// worker (Geant4 takes ownership and deletes it per-thread). The detector/field is intentionally shared
 	// (accumulated under striped per-voxel locks).
-	// NOTE: rad_source's own RNG (std::mt19937 in the shape) is still shared across workers — a data race on
-	// the random stream (correlated/garbage directions, NOT a crash). Make it per-thread/thread_local next.
 	SetUserAction(new Geant4::RadiationSource(this->rad_source, this->fluence_per_run));
 	// Per-worker forwarder into the shared, app-owned detector (Geant4 owns/deletes THIS, not the detector).
 	SetUserAction(new Geant4::RadiationFieldSteppingAction(this->det.get()));

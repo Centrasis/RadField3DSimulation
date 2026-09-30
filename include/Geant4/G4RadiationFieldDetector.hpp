@@ -1,7 +1,7 @@
 #pragma once
 #include <memory>
 #include <vector>
-#include <RadFiled3D/RadiationField.hpp>
+#include <radfiled3d/radiation_field.hpp>
 #include <G4VSensitiveDetector.hh>
 #include <glm/glm.hpp>
 #include <algorithm>
@@ -12,10 +12,14 @@
 #include <map>
 #include <G4SystemOfUnits.hh>
 #include <utils/RollingBuffer.hpp>
-#include <RadFiled3D/GridTracer.hpp>
+#include <radfiled3d/grid_tracer.hpp>
 #include <G4EmCalculator.hh>
 #include <shared_mutex>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include "Statistics.hpp"
+#include "VMFTrainer.hpp"
 #include <algorithm>
 #include <numbers>
 
@@ -40,6 +44,47 @@ namespace RadiationSimulation::Geant4 {
 		PATIENT
 	};
 
+	/** Lets any number of threads score concurrently and one thread pause all of them, e.g. to take a consistent
+	* snapshot of the field. Pausing waits for the steps in progress, then keeps new steps out until resumed; it takes
+	* precedence over new steps, so a snapshot cannot be starved by continuously scoring workers.
+	*/
+	class ScoringGate {
+		std::atomic<size_t> active{ 0 };
+		std::atomic<bool> paused{ false };
+		std::mutex mutex;
+		std::condition_variable changed;
+	public:
+		void enter() {
+			while (true) {
+				this->active.fetch_add(1);
+				if (!this->paused.load())
+					return;
+				this->leave();
+				std::unique_lock lock(this->mutex);
+				this->changed.wait(lock, [this] { return !this->paused.load(); });
+			}
+		}
+		void leave() {
+			if (this->active.fetch_sub(1) == 1 && this->paused.load()) {
+				std::lock_guard lock(this->mutex);
+				this->changed.notify_all();
+			}
+		}
+		void pause() {
+			std::unique_lock lock(this->mutex);
+			this->changed.wait(lock, [this] { return !this->paused.load(); });
+			this->paused.store(true);
+			this->changed.wait(lock, [this] { return this->active.load() == 0; });
+		}
+		void resume() {
+			{
+				std::lock_guard lock(this->mutex);
+				this->paused.store(false);
+			}
+			this->changed.notify_all();
+		}
+	};
+
 	// A single app-owned object shared across all MT workers: one accumulated field, guarded by striped
 	// per-voxel locks. It is a G4UserSteppingAction but is not registered with Geant4 directly (a per-worker
 	// RadiationFieldSteppingAction forwarder is registered instead and calls UserSteppingAction() on it), so
@@ -48,7 +93,7 @@ namespace RadiationSimulation::Geant4 {
 	protected:
 		// The accumulated scoring field and its spectrum layout. Declared first so it is constructed before
 		// `buffers`, whose initializer calls field->add_channel(...).
-		std::shared_ptr<RadFiled3D::CartesianRadiationField> field;
+		std::shared_ptr<radfiled3d::CartesianRadiationField> field;
 		const size_t spectra_bins;
 		const double spectra_bin_width;
 
@@ -62,18 +107,35 @@ namespace RadiationSimulation::Geant4 {
 			float total_energy = 0.f;
 			std::vector<std::shared_mutex> mutexes;
 			mutable std::shared_mutex buffer_mutex;
+			const uint32_t directional_lobes;
+
+			std::unique_ptr<VMFTrainer> make_trainer() const {
+				if (this->directional_lobes == 0)
+					return nullptr;
+				// the first lobe of every voxel starts pointing away from the isocentre (the field centre)
+				const glm::uvec3 counts = this->buffer.get_voxel_counts();
+				const glm::vec3 size = this->buffer.get_voxel_dimensions();
+				const glm::vec3 half = this->half_field_dim / static_cast<float>(m);
+				return std::make_unique<VMFTrainer>(this->buffer.get_voxel_count(), this->directional_lobes, [counts, size, half](size_t voxel) {
+					const glm::vec3 index(voxel % counts.x, (voxel / counts.x) % counts.y, voxel / (static_cast<size_t>(counts.x) * counts.y));
+					return (index + 0.5f) * size - half;
+				});
+			}
 		public:
-			RadFiled3D::VoxelGridBuffer& buffer;
+			radfiled3d::VoxelGridBuffer& buffer;
 			const glm::vec3 half_field_dim;
 			float statistical_error_resolution = 0.5f;
+			// Directions of travel per voxel as a vMF mixture, learned during the run (nullptr if disabled).
+			std::unique_ptr<VMFTrainer> vmf;
 
 			void reset() {
 				std::unique_lock lock(this->buffer_mutex);
 				this->total_energy = 0.f;
 				this->buffer.clear_layer<double>("flux", 0.0);
-				this->buffer.clear_layer<double>("spectrum", 0.0, this->buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<double>>("spectrum", 0).get_bins());
+				this->buffer.clear_layer<double>("spectrum", 0.0, this->buffer.get_voxel_flat<radfiled3d::HistogramVoxel<double>>("spectrum", 0).get_bins());
 				if (this->buffer.has_layer("angular_flux"))
-					this->buffer.clear_layer<double>("angular_flux", 0.0, this->buffer.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<double>>("angular_flux", 0).get_total_segments());
+					this->buffer.clear_layer<double>("angular_flux", 0.0, this->buffer.get_voxel_flat<radfiled3d::AngularResolvedVoxel<double>>("angular_flux", 0).get_total_segments());
+				this->vmf = this->make_trainer();
 			}
 
 			inline float get_total_energy() const { return this->total_energy; }
@@ -124,14 +186,29 @@ namespace RadiationSimulation::Geant4 {
 				return stat_error;
 			}
 
-			inline void score(float energy, const glm::vec3& direction, const std::vector<size_t>& voxel_indices) {
+			/** Scores one step p1 -> p2 (grid frame, metres) into the voxels it enters, each weighted by
+			* TracedVoxel::path_fraction (the path length there with the line tracer, 1 otherwise): flux, spectrum, angular
+			* bins and vMF lobes all hold the incident radiation. The voxel the step starts in is left out: after an
+			* interaction, the radiation there leaves the voxel instead of entering it.
+			*/
+			inline void score(float energy, const glm::vec3& p1, const glm::vec3& p2, const std::vector<radfiled3d::TracedVoxel>& voxels) {
+				const glm::vec3 direction = p2 - p1;
+				const float r = glm::length(direction);
+				double weights = 0.0;
+				for (const radfiled3d::TracedVoxel& traced : voxels)
+					if (!traced.starts_segment)
+						weights += traced.path_fraction;
 				{
 					std::unique_lock lock(this->buffer_mutex);
-					this->total_energy += energy * voxel_indices.size();
+					this->total_energy += static_cast<float>(energy * weights);
 				}
 
-				for (size_t voxel_idx : voxel_indices) {
-					auto& hist_voxel = buffer.get_voxel_flat<RadFiled3D::HistogramVoxel<double>>("spectrum", voxel_idx);
+				for (const radfiled3d::TracedVoxel& traced : voxels) {
+					if (traced.starts_segment || !(traced.path_fraction > 0.f))
+						continue;
+					const size_t voxel_idx = traced.index;
+					const double weight = traced.path_fraction;
+					auto& hist_voxel = buffer.get_voxel_flat<radfiled3d::HistogramVoxel<double>>("spectrum", voxel_idx);
 					size_t index = static_cast<size_t>(energy / hist_voxel.get_histogram_bin_width());
 					if (index >= hist_voxel.get_bins()) {
 						index = hist_voxel.get_bins() - 1;
@@ -139,21 +216,22 @@ namespace RadiationSimulation::Geant4 {
 					}
 
 					// The pool is sized min(voxel_count, MUTEX_POOL_SIZE), so index by the actual size, not the
-				// cap — else a field with < MUTEX_POOL_SIZE voxels indexes past the vector (OOB -> crash).
-				std::unique_lock lock(this->mutexes[voxel_idx % this->mutexes.size()]);
-					this->buffer.get_voxel_flat<RadFiled3D::ScalarVoxel<double>>("flux", voxel_idx) += 1.0;
+					// cap — else a field with < MUTEX_POOL_SIZE voxels indexes past the vector (OOB -> crash).
+					std::unique_lock lock(this->mutexes[voxel_idx % this->mutexes.size()]);
+					this->buffer.get_voxel_flat<radfiled3d::ScalarVoxel<double>>("flux", voxel_idx) += weight;
 
-					(&hist_voxel.get_data())[index] += 1.0;
+					(&hist_voxel.get_data())[index] += weight;
 					this->spectra_variance.add(voxel_idx, hist_voxel);
 
-					if (this->buffer.has_layer("angular_flux")) {
-						float r = glm::length(direction);
-						if (r > 0.f) {
+					if (r > 0.f) {
+						if (this->buffer.has_layer("angular_flux")) {
 							float theta = std::acos(glm::clamp(direction.z / r, -1.f, 1.f));
 							float phi = std::atan2(direction.y, direction.x);
 							if (phi < 0.f) phi += 2.f * std::numbers::pi_v<float>;
-							this->buffer.get_voxel_flat<RadFiled3D::AngularResolvedVoxel<double>>("angular_flux", voxel_idx).add_value(phi, theta, 1.0);
+							this->buffer.get_voxel_flat<radfiled3d::AngularResolvedVoxel<double>>("angular_flux", voxel_idx).add_value(phi, theta, weight);
 						}
+						if (this->vmf)
+							this->vmf->add(voxel_idx, direction / r, weight);
 					}
 				}
 			}
@@ -162,8 +240,9 @@ namespace RadiationSimulation::Geant4 {
 				return this->spectra_variance.get_relative_error(this->buffer.get_voxel_idx(x, y, z));
 			}
 
-			ChannelBuffers(RadFiled3D::VoxelGridBuffer& buffer, float spectra_bin_width, size_t spectra_bins, glm::uvec2 angular_resolution = glm::uvec2(0))
-				: buffer(buffer),
+			ChannelBuffers(radfiled3d::VoxelGridBuffer& buffer, float spectra_bin_width, size_t spectra_bins, glm::uvec2 angular_resolution = glm::uvec2(0), uint32_t directional_lobes = 0)
+				: directional_lobes(directional_lobes),
+				  buffer(buffer),
 				  half_field_dim(
 					  glm::vec3(
 						  static_cast<float>(buffer.get_voxel_counts().x * buffer.get_voxel_dimensions().x * m) / 2.f,
@@ -179,9 +258,10 @@ namespace RadiationSimulation::Geant4 {
 				// fp32 after normalization (get_normalized_field_copy).
 				buffer.add_layer<float>("error", 1.f, "Variance");
 				buffer.add_layer<double>("flux", 0.0, "counts / primary_particles");
-				buffer.add_custom_layer<RadFiled3D::HistogramVoxel<double>>("spectrum", RadFiled3D::HistogramVoxel<double>(spectra_bins, static_cast<double>(spectra_bin_width), nullptr), 0.0, "eV");
+				buffer.add_custom_layer<radfiled3d::HistogramVoxel<double>>("spectrum", radfiled3d::HistogramVoxel<double>(spectra_bins, static_cast<double>(spectra_bin_width), nullptr), 0.0, "eV");
 				if (angular_resolution.x > 0 && angular_resolution.y > 0)
-					buffer.add_custom_layer<RadFiled3D::AngularResolvedVoxel<double>>("angular_flux", RadFiled3D::AngularResolvedVoxel<double>(angular_resolution, nullptr), 0.0, "counts / primary_particles");
+					buffer.add_custom_layer<radfiled3d::AngularResolvedVoxel<double>>("angular_flux", radfiled3d::AngularResolvedVoxel<double>(angular_resolution, nullptr), 0.0, "counts / primary_particles");
+				this->vmf = this->make_trainer();
 			}
 
 			// Copying would re-run the main ctor on the SAME VoxelGridBuffer: the duplicate
@@ -198,8 +278,8 @@ namespace RadiationSimulation::Geant4 {
 			ChannelBuffers scatter_field;
 			ChannelBuffers xray_beam;
 
-			Channels(RadFiled3D::VoxelGridBuffer& scatter_buffer, RadFiled3D::VoxelGridBuffer& xray_buffer, float spectra_bin_width, size_t spectra_bins, const glm::uvec2& angular_resolution)
-				: scatter_field(scatter_buffer, spectra_bin_width, spectra_bins, angular_resolution),
+			Channels(radfiled3d::VoxelGridBuffer& scatter_buffer, radfiled3d::VoxelGridBuffer& xray_buffer, float spectra_bin_width, size_t spectra_bins, const glm::uvec2& angular_resolution, uint32_t directional_lobes)
+				: scatter_field(scatter_buffer, spectra_bin_width, spectra_bins, angular_resolution, directional_lobes),
 				  xray_beam(xray_buffer, spectra_bin_width, spectra_bins, angular_resolution) {}
 
 			void reset() {
@@ -217,18 +297,34 @@ namespace RadiationSimulation::Geant4 {
 
 		std::map<size_t, EventContext> thread_contexts;
 		std::atomic<size_t> tracked_events_counter;
+		// vMF training passes end at 1e6, 2e6, 4e6, ... primaries (doubling passes as in path guiding)
+		static constexpr size_t VMF_FIRST_PASS = 1000000;
+		std::atomic<size_t> next_vmf_pass{ VMF_FIRST_PASS };
+		void train_directional_lobes();
 		
-		G4Material* air_material = NULL;
+		// Materials of the patient geometry: nothing is scored inside them. A handful of entries, so a linear scan is fastest.
+		std::vector<const G4Material*> patient_materials;
+		bool is_patient(const G4Material* material) const {
+			for (const G4Material* m : this->patient_materials)
+				if (m == material)
+					return true;
+			return false;
+		}
 		const float statistical_error_threshold;
 		const float statistical_error_enforcement_ratio;
 		bool is_tracking = true;
 		const float simulation_energy_lower_threshold = 1 * keV;
-		void score_step_for(const G4Step* step, const std::vector<size_t>& voxel_indices, TrackStage stage);
+		void score_step_for(const G4Step* step, const glm::vec3& p1, const glm::vec3& p2, const std::vector<radfiled3d::TracedVoxel>& voxels, TrackStage stage);
 		void evaluate_field();
-		std::shared_ptr<RadFiled3D::GridTracer> tracer;
+		std::shared_ptr<radfiled3d::GridTracer> tracer;
+		// Every voxel a step enters weighted by the path length inside it (track-length estimate, line tracer only);
+		// otherwise each voxel the tracer returns counts once.
+		bool path_length_weighting = false;
 		std::vector< std::function<void(size_t, const G4Step*)>> new_particle_callbacks;
+		// Paused while a normalized copy is taken, so the copy and its primary count describe the same events.
+		ScoringGate scoring_gate;
 		// Voxelized scene geometry on the scoring grid, computed once per run.
-		std::shared_ptr<RadFiled3D::CartesianRadiationField> geometry;
+		std::shared_ptr<radfiled3d::CartesianRadiationField> geometry;
 	public:
 		RadiationFieldDetector(
 			const glm::vec3& radiation_field_dimensions,
@@ -238,21 +334,27 @@ namespace RadiationSimulation::Geant4 {
 			float statistical_error_threshold = 0.1f,
 			float statistical_error_enforcement_ratio = 0.9f,
 			float statistical_error_enforcement_resolution = 0.5f,
-			const glm::uvec2& angular_resolution = glm::uvec2(0)
+			const glm::uvec2& angular_resolution = glm::uvec2(0),
+			uint32_t directional_lobes = 0
 		);
 		virtual ~RadiationFieldDetector() {
 			G4cout << "RadiationFieldDetector destroyed" << G4endl;
 		}
-		void SetUp();
+		/** Sets the materials of the patient geometry (its own and its children's): nothing is scored inside them. */
+		void SetUp(const std::vector<const G4Material*>& patient_materials);
+		const std::vector<const G4Material*>& get_patient_materials() const { return this->patient_materials; }
 		virtual void finalize(size_t particle_count);
 
 		// Runs the field evaluation and returns the normalized fp32 copy.
-		std::shared_ptr<RadFiled3D::IRadiationField> evaluate();
+		std::shared_ptr<radfiled3d::IRadiationField> evaluate();
 
+		/** @param path_length_weighting With the line tracer, weight every voxel a step enters by the path length inside
+		* it (track-length estimate) instead of counting it once; ignored by the other tracers. */
 		template<class T>
-		inline void define_grid_tracer() {
-			static_assert(std::is_base_of<RadFiled3D::GridTracer, T>::value, "T must be derived from RadFiled3D::GridTracer");
+		inline void define_grid_tracer(bool path_length_weighting = true) {
+			static_assert(std::is_base_of<radfiled3d::GridTracer, T>::value, "T must be derived from radfiled3d::GridTracer");
 			this->tracer = std::make_shared<T>(this->buffers.scatter_field.buffer);
+			this->path_length_weighting = path_length_weighting && std::is_same_v<T, radfiled3d::LinetracingGridTracer>;
 		}
 
 		size_t get_number_of_tracked_particles() const;
@@ -260,13 +362,13 @@ namespace RadiationSimulation::Geant4 {
 		
 		// Scores one step into the field; invoked for every step by the per-worker forwarder.
 		virtual void UserSteppingAction(const G4Step* step) override;
-		std::shared_ptr<RadFiled3D::IRadiationField> get_normalized_field_copy();
+		std::shared_ptr<radfiled3d::IRadiationField> get_normalized_field_copy();
 		/** Voxelizes the scene geometry below `world_volume` onto the scoring grid (see Geant4::add_geometry_channel). */
 		void voxelize_geometry(const G4LogicalVolume& world_volume, int max_threads = -1);
 		/** Adds a copy of the voxelized geometry as channel "geometry" to `field`, which must share the scoring grid.
 		* Does nothing if no geometry was voxelized.
 		*/
-		void add_geometry_channel_to(RadFiled3D::CartesianRadiationField& field) const;
+		void add_geometry_channel_to(radfiled3d::CartesianRadiationField& field) const;
 
 		float get_statistical_error(size_t primary_particle_count = 0);
 		void register_on_new_particle(std::function<void(size_t, const G4Step*)> callback);

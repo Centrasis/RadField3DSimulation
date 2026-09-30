@@ -3,14 +3,14 @@
 #include "gtest/gtest.h"
 #include <math.h>
 #include <vector>
-#include <random>
+#include <Randomize.hh>
 
 namespace {
 	TEST(Variance, TestBounds) {
 		Statistics::HistogramDistributionVariance variance(1, 1);
 		float db[1] = { 1.f };
 
-		RadFiled3D::HistogramVoxel<float> histogram(static_cast<size_t>(1), 1.f, (float*)&db);
+		radfiled3d::HistogramVoxel<float> histogram(static_cast<size_t>(1), 1.f, (float*)&db);
 		variance.add(histogram);
 		variance.add(histogram);
 		float var = variance.get_variance();
@@ -44,7 +44,7 @@ namespace {
 		Statistics::HistogramDistributionVariance variance(1, 1);
 		float db[1] = { 1.f };
 
-		RadFiled3D::HistogramVoxel<float> histogram(static_cast<size_t>(1), 1.f, (float*)&db);
+		radfiled3d::HistogramVoxel<float> histogram(static_cast<size_t>(1), 1.f, (float*)&db);
 		variance.add(histogram);
 		variance.add(histogram);
 		float err = variance.get_relative_error();
@@ -78,19 +78,17 @@ namespace {
 		Statistics::HistogramDistributionVariance variance(20, 1);
 		float db[20] = { 0.f };
 
-		RadFiled3D::HistogramVoxel<float> histogram(static_cast<size_t>(20), 1.f, (float*)&db);
-		std::random_device rd;
-		std::mt19937 gen(rd());
+		radfiled3d::HistogramVoxel<float> histogram(static_cast<size_t>(20), 1.f, (float*)&db);
+		G4Random::setTheSeed(1234);
 
 		variance.add(histogram);
 		float last_err = variance.get_relative_error();
 
 		for (size_t epoch = 9; epoch <= 0; epoch--) {
-			std::uniform_int_distribution<size_t> dis(10 - epoch, 10 + epoch);
 			size_t repeats = (epoch <= 1) ? 5 : 1;
 			for (size_t repeat = 0; repeat < repeats; repeat++) {
 				for (size_t i = 0; i < 100; i++) {
-					histogram.get_histogram()[dis(gen)]++;
+					histogram.get_histogram()[G4RandFlat::shootInt(static_cast<long>(10 - epoch), static_cast<long>(10 + epoch + 1))]++;
 				}
 
 				variance.add(histogram);
@@ -114,20 +112,18 @@ namespace {
 		Statistics::HistogramDistributionVariance variance(20, 1);
 		float db[20] = { 0.f };
 
-		RadFiled3D::HistogramVoxel<float> histogram(static_cast<size_t>(20), 1.f, (float*)&db);
-		std::random_device rd;
-		std::mt19937 gen(rd());
+		radfiled3d::HistogramVoxel<float> histogram(static_cast<size_t>(20), 1.f, (float*)&db);
+		G4Random::setTheSeed(1234);
 
 		variance.add(histogram);
 		variance.add(histogram);
 		float last_err = 0.f;
 
 		for (size_t epoch = 0; epoch < 10; epoch++) {
-			std::uniform_int_distribution<size_t> dis(10 - epoch, 10 + epoch);
 			size_t repeats = 2;
 			for (size_t repeat = 0; repeat < repeats; repeat++) {
 				for (size_t i = 0; i < 100; i++) {
-					histogram.get_histogram()[dis(gen)]++;
+					histogram.get_histogram()[G4RandFlat::shootInt(static_cast<long>(10 - epoch), static_cast<long>(10 + epoch + 1))]++;
 				}
 				variance.add(histogram);
 

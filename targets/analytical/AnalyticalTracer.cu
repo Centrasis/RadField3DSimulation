@@ -97,15 +97,17 @@ __global__ void k_direct(DeviceParams p, const float* __restrict__ density,
     // Collimated primary fluence with a smooth focal-spot penumbra at the beam edge (no hard step).
     float fluence = 0.f;
     if (t_ax > 0.f) {
-        if (p.shape == 0) {  // rectangle: field grows linearly with axial distance
+        if (p.shape == 0) {  // rectangle: a point source behind a rectangular collimator, the field grows linearly with axial distance
             const float lat1 = rx * p.e1x + ry * p.e1y + rz * p.e1z;
             const float lat2 = rx * p.e2x + ry * p.e2y + rz * p.e2z;
             const float sc = fmaxf(t_ax / p.distance, 1e-6f);
             const float cov = edge_coverage(lat1, 0.5f * p.rect_w * sc, t_ax, p)
                             * edge_coverage(lat2, 0.5f * p.rect_h * sc, t_ax, p);
             if (cov > 0.f) {
-                const float tt = fmaxf(t_ax, p.a);
-                fluence = cov * p.a * p.a * p.distance * p.distance / (p.rect_w * p.rect_h * tt * tt);
+                // isotropic within the collimated solid angle, like the cone: the w×h rectangle at the isocentre subtends omega
+                const float d2 = 4.f * p.distance * p.distance;
+                const float omega = 4.f * asinf(p.rect_w * p.rect_h / sqrtf((p.rect_w * p.rect_w + d2) * (p.rect_h * p.rect_h + d2)));
+                fluence = cov * p.a * p.a / (omega * fmaxf(dist * dist, p.a * p.a));
             }
         } else {  // cone — penumbra on the polar-angle edge
             const float ang = acosf(fminf(fmaxf((rx * p.dx + ry * p.dy + rz * p.dz) / fmaxf(dist, p.a), -1.f), 1.f));

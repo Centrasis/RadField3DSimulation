@@ -1,6 +1,8 @@
 from typing import Sequence
 
-from RadFiled3D.RadFiled3D import FieldStore, vec3, DType
+from radfiled3d import DType
+from radfiled3d.glm import vec3
+from radfiled3d.store import FieldStore
 
 
 def add_patient_translation(rf3_path: str, translation: Sequence[float]) -> None:

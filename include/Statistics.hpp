@@ -1,7 +1,7 @@
 #pragma once
 #include <vector>
 #include <cstdint>
-#include "RadFiled3D/Voxel.hpp"
+#include "radfiled3d/voxel.hpp"
 
 namespace Statistics {
 	/** @brief Class to calculate the variance of a set of values.
@@ -53,7 +53,7 @@ namespace Statistics {
 		float cumulative_error;
 	public:
 		HistogramMeanDistributionVariance(float bin_width, size_t bins, size_t score_every_n = 100);
-		void add(const RadFiled3D::HistogramVoxel<float>& vx);
+		void add(const radfiled3d::HistogramVoxel<float>& vx);
 		void reset();
 
 		float get_relative_error() const;
@@ -71,7 +71,7 @@ namespace Statistics {
 		std::vector<Variance> variances;
 	public:
 		HistogramDistributionVariance(size_t bins, size_t score_every_n = 100);
-		void add(const RadFiled3D::HistogramVoxel<float>& vx);
+		void add(const radfiled3d::HistogramVoxel<float>& vx);
 		void reset();
 
 		float get_variance() const;
@@ -95,7 +95,7 @@ namespace Statistics {
 		std::vector<float> m2s;
 	public:
 		VoxelSpectraVariance(size_t voxel_count, size_t bins, size_t score_every_n = 100);
-		void add(size_t voxel_idx, const RadFiled3D::HistogramVoxel<double>& vx);
+		void add(size_t voxel_idx, const radfiled3d::HistogramVoxel<double>& vx);
 		void reset();
 
 		float get_relative_error(size_t voxel_idx) const;

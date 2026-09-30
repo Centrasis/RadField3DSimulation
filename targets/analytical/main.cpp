@@ -14,12 +14,12 @@
 #include "RadiationSource.hpp"
 #include "Voxelization.hpp"
 
-#include <RadFiled3D/RadiationField.hpp>
-#include <RadFiled3D/VoxelGrid.hpp>
-#include <RadFiled3D/Voxel.hpp>
-#include <RadFiled3D/storage/RadiationFieldStore.hpp>
-#include <RadFiled3D/storage/Types.hpp>
-#include <RadFiled3D/helpers/Typing.hpp>
+#include <radfiled3d/radiation_field.hpp>
+#include <radfiled3d/voxel_grid.hpp>
+#include <radfiled3d/voxel.hpp>
+#include <radfiled3d/storage/radiation_field_store.hpp>
+#include <radfiled3d/storage/types.hpp>
+#include <radfiled3d/helpers/typing.hpp>
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -32,6 +32,7 @@
 #include <cstring>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -60,18 +61,14 @@ struct Cli {
     float focal_spot = 0.01f;  // effective focal-spot size (m) — beam-edge penumbra blur
 };
 
-// Number of Monte-Carlo energy draws used to materialize the tube spectrum histogram from the loaded
-// PDF (reusing XRaySpectrumSource's sampling). Plenty for a smooth 1 keV / 32-bin spectrum.
-constexpr int SPECTRUM_SAMPLES = 200000;
-
 // Channel "geometry" on the field's grid: one 8-bit layer per mesh Type (255 = voxel overlaps a mesh of that type).
 // Meshes are placed as for the density grid (AnalyticalVoxelizer): scale and rotation about the mesh origin,
 // translations composed additively through the parents.
-void add_geometry_channel(RadFiled3D::CartesianRadiationField& field, const std::vector<std::shared_ptr<Mesh>>& meshes)
+void add_geometry_channel(radfiled3d::CartesianRadiationField& field, const std::vector<std::shared_ptr<Mesh>>& meshes)
 {
     if (meshes.empty())
         return;
-    auto channel = std::static_pointer_cast<RadFiled3D::VoxelGridBuffer>(field.add_channel("geometry"));
+    auto channel = std::static_pointer_cast<radfiled3d::VoxelGridBuffer>(field.add_channel("geometry"));
     const glm::uvec3 counts = channel->get_voxel_counts();
     const double voxel_size = channel->get_voxel_dimensions().x;
     const Voxelization::VoxelGrid grid{ counts, voxel_size, -0.5 * glm::dvec3(counts) * voxel_size };
@@ -146,42 +143,37 @@ try {
 
     // --- source shape (reuses the Geant4 binary's shapes) ---
     std::unique_ptr<ISourceShape> shape;
-    RadFiled3D::Typing::FieldShape field_shape;
+    radfiled3d::typing::FieldShape field_shape;
     if (cli.source_shape == "rectangle") {
         shape = std::make_unique<RectangleSourceShape>(glm::vec2(cli.opening.x, cli.opening.y), cli.source_distance);
-        field_shape = RadFiled3D::Typing::FieldShape::Rectangle;
+        field_shape = radfiled3d::typing::FieldShape::Rectangle;
     } else if (cli.source_shape == "cone") {
         shape = std::make_unique<ConeSourceShape>(cli.opening.x);
-        field_shape = RadFiled3D::Typing::FieldShape::Cone;
+        field_shape = radfiled3d::typing::FieldShape::Cone;
     } else {
         throw std::runtime_error("analytical simulator supports source-shape rectangle or cone, got " + cli.source_shape);
     }
 
-    // --- spectrum: load the PDF and materialize its histogram by MC sampling (reused) ---
+    // --- spectrum: the loaded distribution, integrated exactly over the histogram bins (no sampling) ---
     auto pdf = SpectrumLoader::LoadSpectrum(cli.spectrum);
     auto source = std::make_shared<XRaySpectrumSource>(pdf, std::move(shape), 0.f, (float)cli.max_energy);
-    for (int s = 0; s < SPECTRUM_SAMPLES; ++s)
-        source->drawEnergy_eV();
-    const RadFiled3D::HistogramVoxel<float>& tube_hist = source->getGeneratedSpectrum();
-    const int tube_bins = (int)tube_hist.get_bins();
-    const float tube_bin_width_ev = tube_hist.get_histogram_bin_width();
-    const float* tube_data = &const_cast<RadFiled3D::HistogramVoxel<float>&>(tube_hist).get_data();
+    const int tube_bins = (int)source->getGeneratedSpectrumBins();
+    const float tube_bin_width_ev = source->getGeneratedSpectrumBinWidth_eV();
 
-    std::vector<float> tube_weights(tube_data, tube_data + tube_bins);
-    { double sum = 0.0; for (float w : tube_weights) sum += w;
-      if (sum <= 0.0) throw std::runtime_error("spectrum produced no samples");
-      for (float& w : tube_weights) w = (float)(w / sum); }
-
-    // field-bin weights (physics): rebin the sampled tube histogram onto the field's `bins`.
-    std::vector<float> field_weights(bins, 0.f);
+    // tube spectrum metadata: same binning as the Monte-Carlo binary records (bin i centred at i * width, the last
+    // bin also holds everything above)
+    std::vector<float> tube_weights(tube_bins, 0.f);
     for (int tb = 0; tb < tube_bins; ++tb) {
-        const double e = (tb + 0.5) * tube_bin_width_ev;
-        int fb = (int)std::floor(e / bin_width_ev);
-        fb = std::min(std::max(fb, 0), bins - 1);
-        field_weights[fb] += tube_weights[tb];
+        const double upper = (tb + 1 < tube_bins) ? (tb + 0.5) * tube_bin_width_ev : std::numeric_limits<double>::max();
+        tube_weights[tb] = (float)pdf->probability((tb - 0.5) * tube_bin_width_ev, upper);
     }
-    { double sum = 0.0; for (float w : field_weights) sum += w;
-      for (float& w : field_weights) w = (float)(w / sum); }
+
+    // field-bin weights (physics): bin fb covers [fb, fb + 1) * bin width, the last bin also holds everything above
+    std::vector<float> field_weights(bins, 0.f);
+    for (int fb = 0; fb < bins; ++fb) {
+        const double upper = (fb + 1 < bins) ? (fb + 1) * bin_width_ev : std::numeric_limits<double>::max();
+        field_weights[fb] = (float)pdf->probability(fb * bin_width_ev, upper);
+    }
     const float spectrum_max_energy_eV = (float)pdf->max();
 
     // --- source placement, identical to RadField3D.cpp (phi about Y, theta about X) ---
@@ -211,7 +203,7 @@ try {
     p.distance = cli.source_distance;
     p.particles = cli.particles;
     p.focal_spot_m = cli.focal_spot;
-    if (field_shape == RadFiled3D::Typing::FieldShape::Rectangle) {
+    if (field_shape == radfiled3d::typing::FieldShape::Rectangle) {
         const glm::vec2 rect = static_cast<const RectangleSourceShape*>(source->getShape())->getFieldSizeMeters();
         p.shape = 0; p.rect_w = rect.x; p.rect_h = rect.y;
     } else {
@@ -221,22 +213,22 @@ try {
 
     // --- allocate the .rf3 field first (same channel/layer layout the Geant4 detector writes) and
     //     let the tracer write its results straight into the field-owned VoxelLayer buffers ---
-    auto field = std::make_shared<RadFiled3D::CartesianRadiationField>(
+    auto field = std::make_shared<radfiled3d::CartesianRadiationField>(
         glm::vec3(cli.world_dim.x, cli.world_dim.y, cli.world_dim.z),
         glm::vec3(cli.voxel_dim, cli.voxel_dim, cli.voxel_dim));
     const float bin_width_mev = (float)(bin_width_ev * 1e-6);
 
     auto make_channel = [&](const char* name) -> AnalyticalChannelBuffers {
-        auto* buf = static_cast<RadFiled3D::VoxelGridBuffer*>(field->add_channel(name).get());
+        auto* buf = static_cast<radfiled3d::VoxelGridBuffer*>(field->add_channel(name).get());
         buf->add_layer<float>("error", 1.f, "Variance");
         buf->add_layer<float>("flux", 0.f, "counts");
-        buf->add_custom_layer<RadFiled3D::HistogramVoxel<float>>(
-            "spectrum", RadFiled3D::HistogramVoxel<float>(bins, bin_width_mev, nullptr), 0.f, "eV");
+        buf->add_custom_layer<radfiled3d::HistogramVoxel<float>>(
+            "spectrum", radfiled3d::HistogramVoxel<float>(bins, bin_width_mev, nullptr), 0.f, "eV");
         // VoxelLayer data buffers are contiguous (x-fastest); voxel 0's data is the buffer base.
         AnalyticalChannelBuffers b;
-        b.flux = &buf->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("flux", 0).get_data();
-        b.error = &buf->get_voxel_flat<RadFiled3D::ScalarVoxel<float>>("error", 0).get_data();
-        b.spectrum = &buf->get_voxel_flat<RadFiled3D::HistogramVoxel<float>>("spectrum", 0).get_data();
+        b.flux = &buf->get_voxel_flat<radfiled3d::ScalarVoxel<float>>("flux", 0).get_data();
+        b.error = &buf->get_voxel_flat<radfiled3d::ScalarVoxel<float>>("error", 0).get_data();
+        b.spectrum = &buf->get_voxel_flat<radfiled3d::HistogramVoxel<float>>("spectrum", 0).get_data();
         return b;
     };
     AnalyticalOutput out;
@@ -246,23 +238,23 @@ try {
     run_analytical(p, density, field_weights, out);
 
     // --- metadata (marks these as analytical fields) ---
-    auto metadata = std::make_shared<RadFiled3D::Storage::V1::RadiationFieldMetadata>(
-        RadFiled3D::Storage::FiledTypes::V1::RadiationFieldMetadataHeader::Simulation(
+    auto metadata = std::make_shared<radfiled3d::storage::v1::RadiationFieldMetadata>(
+        radfiled3d::storage::filed_types::v1::RadiationFieldMetadataHeader::Simulation(
             (size_t)cli.particles, cli.geom, "analytic-raytracing",
-            RadFiled3D::Storage::FiledTypes::V1::RadiationFieldMetadataHeader::Simulation::XRayTube(
+            radfiled3d::storage::filed_types::v1::RadiationFieldMetadataHeader::Simulation::XRayTube(
                 dir, origin, spectrum_max_energy_eV, cli.spectrum)),
-        RadFiled3D::Storage::FiledTypes::V1::RadiationFieldMetadataHeader::Software(
+        radfiled3d::storage::filed_types::v1::RadiationFieldMetadataHeader::Software(
             "RadField3D-Analytical", "1.0.0-analytic", "https://github.com/Centrasis/RadField3DSimulation", "analytic"));
 
-    metadata->set_dynamic_custom_metadata<RadFiled3D::HistogramVoxel<float>>(
-        "tube_spectrum", RadFiled3D::HistogramVoxel<float>(tube_bins, tube_bin_width_ev, nullptr));
-    std::memcpy(metadata->get_dynamic_metadata<RadFiled3D::HistogramVoxel<float>>("tube_spectrum").get_histogram().data(),
+    metadata->set_dynamic_custom_metadata<radfiled3d::HistogramVoxel<float>>(
+        "tube_spectrum", radfiled3d::HistogramVoxel<float>(tube_bins, tube_bin_width_ev, nullptr));
+    std::memcpy(metadata->get_dynamic_metadata<radfiled3d::HistogramVoxel<float>>("tube_spectrum").get_histogram().data(),
                 tube_weights.data(), sizeof(float) * tube_bins);
     const long long end_time =
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     metadata->add_dynamic_metadata<uint64_t>("simulation_duration_s", (uint64_t)(end_time - start_time));
     metadata->add_dynamic_metadata<uint8_t>("xray_field_shape", static_cast<uint8_t>(field_shape));
-    if (field_shape == RadFiled3D::Typing::FieldShape::Rectangle)
+    if (field_shape == radfiled3d::typing::FieldShape::Rectangle)
         metadata->add_dynamic_metadata<glm::vec2>("xray_tube_field_rect_dimensions_m", glm::vec2(p.rect_w, p.rect_h));
     else
         metadata->add_dynamic_metadata<float>("xray_tube_opening_angle_deg", cli.opening.x);
@@ -270,7 +262,7 @@ try {
     add_geometry_channel(*field, meshes);
 
     if (fs::exists(out_path)) fs::remove(out_path);
-    RadFiled3D::Storage::FieldStore::store(field, metadata, out_path.string(), RadFiled3D::Storage::StoreVersion::V1);
+    radfiled3d::storage::FieldStore::store(field, metadata, out_path.string(), radfiled3d::storage::StoreVersion::V1);
     std::cout << "Wrote field to: " << out_path.string() << std::endl;
     return 0;
 }

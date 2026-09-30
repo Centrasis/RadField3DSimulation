@@ -28,7 +28,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 # address = use-after-free / heap overflow / double-free (start here — it targets the
 #           memory corruption that produces the SIGSEGV); thread = data races.
 # Set here, before any target or FetchContent subdirectory is defined, so every TU
-# (ours + libRadFiled3D, where the threaded scoring lives) is instrumented and the
+# (ours + radfiled3d, where the threaded scoring lives) is instrumented and the
 # runtime is linked into the RadField3D executable. Geant4 itself is a prebuilt lib and
 # stays uninstrumented — races inside our code are still caught; ASan/TSan tolerate the gap.
 # Runtime hints: ASan  -> ASAN_OPTIONS=detect_leaks=0:abort_on_error=1  (Geant4 keeps
@@ -175,7 +175,14 @@ file(WRITE "${PROJECT_SOURCE_DIR}/Dependencies.conf" "${Geant4_INCLUDE_DIRS}/../
 file(APPEND "${PROJECT_SOURCE_DIR}/Dependencies.conf" "bin\n")
 
 set(RS_Enable_Linetracing, ON)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/targets/radiationfieldstorage)
+# Develop against a RadFiled3D checkout instead of the pinned submodule, e.g.
+# -DRS_RADFILED3D_SOURCE_DIR=/path/to/RadFiled3D (in a separate build directory).
+set(RS_RADFILED3D_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/targets/radiationfieldstorage" CACHE PATH "RadFiled3D sources to build against")
+if(NOT EXISTS "${RS_RADFILED3D_SOURCE_DIR}/include/radfiled3d/voxel.hpp")
+  message(FATAL_ERROR "RadFiled3D in ${RS_RADFILED3D_SOURCE_DIR} is older than 1.4.0 (no include/radfiled3d/). "
+    "Update the submodule (git submodule update --remote targets/radiationfieldstorage) or point RS_RADFILED3D_SOURCE_DIR at a 1.4.0 checkout.")
+endif()
+add_subdirectory(${RS_RADFILED3D_SOURCE_DIR} ${CMAKE_BINARY_DIR}/targets/radiationfieldstorage)
 
 include(${Geant4_USE_FILE})
 
@@ -183,7 +190,7 @@ set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 file(GLOB_RECURSE sources PROJECT_SOURCE_FILES ${PROJECT_SOURCE_DIR}/src/*.cpp ${PROJECT_SOURCE_DIR}/include/*.hpp)
 
-set_target_properties(libRadFiled3D PROPERTIES FOLDER "Library")
+set_target_properties(radfiled3d PROPERTIES FOLDER "Library")
 set_target_properties(glm PROPERTIES FOLDER "ThirdParty")
 if (TARGET zlibstatic)
   set_target_properties(zlibstatic PROPERTIES FOLDER "ThirdParty")
@@ -201,9 +208,9 @@ endforeach()
 add_library(libRadField3D STATIC ${sources})
 target_include_directories(libRadField3D PUBLIC include)
 if (MSVC)
-  target_link_libraries(libRadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D ${RS_OPENVDB_TARGET})
+  target_link_libraries(libRadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen radfiled3d ${RS_OPENVDB_TARGET})
 else()
-  target_link_libraries(libRadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D ${RS_OPENVDB_TARGET} stdc++fs)
+  target_link_libraries(libRadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen radfiled3d ${RS_OPENVDB_TARGET} stdc++fs)
 endif()
 if(WITH_GEANT4_UIVIS)
   target_compile_definitions(libRadField3D PUBLIC WITH_GEANT4_UIVIS)
@@ -219,9 +226,9 @@ set_target_properties(libRadField3D PROPERTIES FOLDER "Library")
 add_executable(RadField3D ${PROJECT_SOURCE_DIR}/targets/radfield3d/RadField3D.cpp ${sources})
 target_include_directories(RadField3D PUBLIC include)
 if (MSVC)
-  target_link_libraries(RadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D ${RS_OPENVDB_TARGET} libRadField3D)
+  target_link_libraries(RadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen radfiled3d ${RS_OPENVDB_TARGET} libRadField3D)
 else()
-  target_link_libraries(RadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D ${RS_OPENVDB_TARGET} libRadField3D stdc++fs)
+  target_link_libraries(RadField3D ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen radfiled3d ${RS_OPENVDB_TARGET} libRadField3D stdc++fs)
 endif()
 if(WITH_GEANT4_UIVIS)
   target_compile_definitions(RadField3D PUBLIC WITH_GEANT4_UIVIS)
@@ -256,7 +263,7 @@ if(BUILD_ANALYTICAL)
     ${PROJECT_SOURCE_DIR}/src/Voxelization.cpp
   )
   target_include_directories(RadField3D-Analytical PRIVATE include)
-  target_link_libraries(RadField3D-Analytical glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D ${RS_OPENVDB_TARGET} CUDA::cufft)
+  target_link_libraries(RadField3D-Analytical glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen radfiled3d ${RS_OPENVDB_TARGET} CUDA::cufft)
   if(NOT MSVC)
     target_link_libraries(RadField3D-Analytical stdc++fs)
   endif()
@@ -327,9 +334,9 @@ if(BUILD_TESTS)
     # conda env) — mixed gtest header/lib versions fail at link (MakeAndRegisterTestInfo).
     target_include_directories(${target_name} BEFORE PRIVATE ${googletest_SOURCE_DIR}/googletest/include)
     if (MSVC)
-      target_link_libraries(${target_name} ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D ${RS_OPENVDB_TARGET} libRadField3D GTest::gtest_main)
+      target_link_libraries(${target_name} ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen radfiled3d ${RS_OPENVDB_TARGET} libRadField3D GTest::gtest_main)
     else()
-      target_link_libraries(${target_name} ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen libRadFiled3D ${RS_OPENVDB_TARGET} libRadField3D GTest::gtest_main stdc++fs)
+      target_link_libraries(${target_name} ${Geant4_LIBRARIES} glm assimp nlohmann_json::nlohmann_json Eigen3::Eigen radfiled3d ${RS_OPENVDB_TARGET} libRadField3D GTest::gtest_main stdc++fs)
     endif()
     set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${CMAKE_CXX_STANDARD})
     set_target_properties(${target_name}
@@ -361,15 +368,35 @@ if(BUILD_TESTS)
   add_executable(GeometryChannelTest ${PROJECT_SOURCE_DIR}/targets/test/GeometryChannelTest.cpp)
   link_test_target(GeometryChannelTest)
 
+  add_executable(PatientScoringTest ${PROJECT_SOURCE_DIR}/targets/test/PatientScoringTest.cpp)
+  link_test_target(PatientScoringTest)
+
   add_executable(GeometryLoaderTest ${PROJECT_SOURCE_DIR}/targets/test/GeometryLoaderTest.cpp)
   link_test_target(GeometryLoaderTest)
+
+  add_executable(FieldAppendTest ${PROJECT_SOURCE_DIR}/targets/test/FieldAppendTest.cpp)
+  link_test_target(FieldAppendTest)
+
+  add_executable(SpectrumSamplingTest ${PROJECT_SOURCE_DIR}/targets/test/SpectrumSamplingTest.cpp)
+  link_test_target(SpectrumSamplingTest)
+
+  add_executable(PhysicsListTest ${PROJECT_SOURCE_DIR}/targets/test/PhysicsListTest.cpp)
+  link_test_target(PhysicsListTest)
+
+  add_executable(VMFTrainerTest ${PROJECT_SOURCE_DIR}/targets/test/VMFTrainerTest.cpp)
+  link_test_target(VMFTrainerTest)
 
   set_target_properties(WorldTest PROPERTIES FOLDER "Tests")
   set_target_properties(CollisionTest PROPERTIES FOLDER "Tests")
   set_target_properties(DetectorTest PROPERTIES FOLDER "Tests")
   set_target_properties(VoxelizationTest PROPERTIES FOLDER "Tests")
   set_target_properties(GeometryChannelTest PROPERTIES FOLDER "Tests")
+  set_target_properties(PatientScoringTest PROPERTIES FOLDER "Tests")
   set_target_properties(GeometryLoaderTest PROPERTIES FOLDER "Tests")
+  set_target_properties(FieldAppendTest PROPERTIES FOLDER "Tests")
+  set_target_properties(SpectrumSamplingTest PROPERTIES FOLDER "Tests")
+  set_target_properties(PhysicsListTest PROPERTIES FOLDER "Tests")
+  set_target_properties(VMFTrainerTest PROPERTIES FOLDER "Tests")
   set_target_properties(HistogramStatisticsTest PROPERTIES FOLDER "Tests")
   set_target_properties(SourceDistributionTests PROPERTIES FOLDER "Tests")
 
@@ -385,6 +412,9 @@ if(BUILD_TESTS)
   gtest_discover_tests(CollisionTest)
   gtest_discover_tests(VoxelizationTest)
   gtest_discover_tests(GeometryLoaderTest)
+  gtest_discover_tests(FieldAppendTest)
+  gtest_discover_tests(SpectrumSamplingTest)
+  gtest_discover_tests(VMFTrainerTest)
  # gtest_discover_tests(RSLibLoadTest)
 endif()
 

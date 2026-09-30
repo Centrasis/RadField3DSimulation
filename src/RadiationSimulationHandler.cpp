@@ -10,11 +10,10 @@
 #include "World.hpp"
 #include "Geant4/G4World.hpp"
 #include "Geant4/G4RadiationFieldDetector.hpp"
-#include "RadFiled3D/storage/RadiationFieldStore.hpp"
+#include "radfiled3d/storage/radiation_field_store.hpp"
 #include <G4SteppingVerbose.hh>
 #include "G4StepLimiterPhysics.hh"
 #include "Randomize.hh"
-#include <random>
 #include "G4EmStandardPhysics_option4.hh"
 #include "G4Gamma.hh"
 #include "Geant4/G4PhysicsList.hpp"
@@ -36,7 +35,6 @@ RadiationSimulation::Geant4::RadiationSimulationHandler::RadiationSimulationHand
 
 bool Geant4::RadiationSimulationHandler::initialize()
 {
-	CLHEP::HepRandom::setTheEngine(&this->random_generator);
 	G4SteppingVerbose::UseBestUnit(4);
 #ifdef WITH_GEANT4_UIVIS
 	if (cpu_count > 1)
@@ -53,6 +51,13 @@ bool Geant4::RadiationSimulationHandler::initialize()
 	this->G4mgr->SetUserInitialization(this->physics);
 
 	return true;
+}
+
+void Geant4::RadiationSimulationHandler::set_random_seed(uint64_t seed)
+{
+	// Geant4's default engine (MixMaxRng) takes the seed as two 32-bit words (long is 32 bit on Windows).
+	const long seeds[2] = { static_cast<long>(seed & 0xffffffffu), static_cast<long>(seed >> 32) };
+	G4Random::setTheSeeds(seeds);
 }
 
 void RadiationSimulation::Geant4::RadiationSimulationHandler::finalize()
@@ -117,12 +122,13 @@ void RadiationSimulation::Geant4::RadiationSimulationHandler::finalize()
 			this->radiation_field_resolution.statistical_error.threshold,
 			this->radiation_field_resolution.statistical_error.enforcement_ratio,
 			this->radiation_field_resolution.statistical_error.enforcement_resolution,
-			this->radiation_field_resolution.angular_resolution
+			this->radiation_field_resolution.angular_resolution,
+			this->radiation_field_resolution.directional_lobes
 		);
 		rad_det->register_on_new_particle([=, this](size_t evt_count, const G4Step* step) {
 			for (auto& cb : this->callbacks) {
 				if (evt_count > 0 && evt_count % cb.first == 0) {
-					std::shared_ptr<RadFiled3D::IRadiationField> field = rad_det->get_normalized_field_copy();
+					std::shared_ptr<radfiled3d::IRadiationField> field = rad_det->get_normalized_field_copy();
 					cb.second(field, evt_count);
 				}
 			}
@@ -211,19 +217,19 @@ void RadiationSimulation::Geant4::RadiationSimulationHandler::add_geometry(const
 		this->meshes.push_back(m);
 }
 
-std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::Geant4::RadiationSimulationHandler::simulate_radiation_field(size_t n_particles, RadFiled3D::GridTracerAlgorithm tracing_algorithm)
+std::shared_ptr<radfiled3d::IRadiationField> RadiationSimulation::Geant4::RadiationSimulationHandler::simulate_radiation_field(size_t n_particles, radfiled3d::GridTracerAlgorithm tracing_algorithm, bool path_length_weighting)
 {
 	G4cout << "Particles to calculate: " << n_particles << G4endl;
 	if (this->field_detector) {
 		switch (tracing_algorithm) {
-		case RadFiled3D::GridTracerAlgorithm::SAMPLING:
-			this->field_detector->define_grid_tracer<RadFiled3D::SamplingGridTracer>();
+		case radfiled3d::GridTracerAlgorithm::SAMPLING:
+			this->field_detector->define_grid_tracer<radfiled3d::SamplingGridTracer>(path_length_weighting);
 			break;
-		case RadFiled3D::GridTracerAlgorithm::BRESENHAM:
-			this->field_detector->define_grid_tracer<RadFiled3D::BresenhamGridTracer>();
+		case radfiled3d::GridTracerAlgorithm::BRESENHAM:
+			this->field_detector->define_grid_tracer<radfiled3d::BresenhamGridTracer>(path_length_weighting);
 			break;
-		case RadFiled3D::GridTracerAlgorithm::LINETRACING:
-			this->field_detector->define_grid_tracer<RadFiled3D::LinetracingGridTracer>();
+		case radfiled3d::GridTracerAlgorithm::LINETRACING:
+			this->field_detector->define_grid_tracer<radfiled3d::LinetracingGridTracer>(path_length_weighting);
 			break;
 		}
 		this->field_detector->finalize(n_particles);
@@ -239,7 +245,7 @@ std::shared_ptr<RadFiled3D::IRadiationField> RadiationSimulation::Geant4::Radiat
 	this->G4mgr->BeamOn(n_particles);
 	this->update_gui();
 
-	return (RadiationSimulation::World::Get()->get_radiation_field_detector()) ? RadiationSimulation::World::Get()->get_radiation_field_detector()->evaluate() : std::shared_ptr<RadFiled3D::IRadiationField>(NULL);
+	return (RadiationSimulation::World::Get()->get_radiation_field_detector()) ? RadiationSimulation::World::Get()->get_radiation_field_detector()->evaluate() : std::shared_ptr<radfiled3d::IRadiationField>(NULL);
 }
 
 void Geant4::RadiationSimulationHandler::deinitialize()
@@ -251,12 +257,12 @@ void Geant4::RadiationSimulationHandler::deinitialize()
 	this->G4mgr.reset();
 }
 
-void RadiationSimulation::Geant4::RadiationSimulationHandler::add_callback_every_n_particles(std::function<void(std::shared_ptr<RadFiled3D::IRadiationField>, size_t)> callback, size_t n_particles)
+void RadiationSimulation::Geant4::RadiationSimulationHandler::add_callback_every_n_particles(std::function<void(std::shared_ptr<radfiled3d::IRadiationField>, size_t)> callback, size_t n_particles)
 {
 	callbacks.push_back({ n_particles, callback });
 }
 
-void RadiationSimulation::Geant4::RadiationSimulationHandler::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, glm::uvec2 angular_resolution)
+void RadiationSimulation::Geant4::RadiationSimulationHandler::set_radiation_field_resolution(const glm::vec3& radiation_field_dimensions, const glm::vec3& radiation_field_voxel_dimensions, float radiation_field_max_energy, float energy_resolution, float statistical_error_threshold, float statistical_error_enforcement_ratio, glm::uvec2 angular_resolution, uint32_t directional_lobes)
 {
 	this->radiation_field_resolution.radiation_field_dimensions = radiation_field_dimensions;
 	this->radiation_field_resolution.radiation_field_voxel_dimensions = radiation_field_voxel_dimensions;
@@ -265,4 +271,5 @@ void RadiationSimulation::Geant4::RadiationSimulationHandler::set_radiation_fiel
 	this->radiation_field_resolution.statistical_error.threshold = statistical_error_threshold;
 	this->radiation_field_resolution.statistical_error.enforcement_ratio = statistical_error_enforcement_ratio;
 	this->radiation_field_resolution.angular_resolution = angular_resolution;
+	this->radiation_field_resolution.directional_lobes = directional_lobes;
 }

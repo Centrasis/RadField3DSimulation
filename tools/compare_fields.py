@@ -1,4 +1,6 @@
-from RadFiled3D.RadFiled3D import FieldStore, CartesianRadiationField, HistogramVoxel, RadiationFieldMetadataV1
+from radfiled3d import CartesianRadiationField, HistogramVoxel
+from radfiled3d.metadata.v1 import Metadata
+from radfiled3d.store import FieldStore
 import argparse
 import numpy as np
 import os
@@ -46,8 +48,8 @@ if __name__ == "__main__":
     field1: CartesianRadiationField = FieldStore.load(args.file1)
     field2: CartesianRadiationField = FieldStore.load(args.file2)
 
-    metadata1: RadiationFieldMetadataV1 = FieldStore.load_metadata(args.file1)
-    metadata2: RadiationFieldMetadataV1 = FieldStore.load_metadata(args.file2)
+    metadata1: Metadata = FieldStore.load_metadata(args.file1)
+    metadata2: Metadata = FieldStore.load_metadata(args.file2)
 
     fig = go.Figure()
     # plot the source spectra

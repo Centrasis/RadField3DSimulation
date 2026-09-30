@@ -4,6 +4,7 @@
 #include <G4PVPlacement.hh>
 #include <G4Material.hh>
 #include <G4SystemOfUnits.hh>
+#include <algorithm>
 #include <chrono>
 #include <map>
 #include <stdexcept>
@@ -133,6 +134,18 @@ void Geant4::Mesh::place(G4LogicalVolume* parent)
 	);
 }
 
+std::vector<const G4Material*> Geant4::Mesh::getMaterials() const
+{
+	std::vector<const G4Material*> materials;
+	if (this->volume && this->volume->GetMaterial() != nullptr)
+		materials.push_back(this->volume->GetMaterial());
+	for (const auto& child : this->children)
+		for (const G4Material* material : child->getMaterials())
+			if (std::find(materials.begin(), materials.end(), material) == materials.end())
+				materials.push_back(material);
+	return materials;
+}
+
 void Geant4::Mesh::setMaterial(G4Material* material)
 {
 	G4String type = "Tracker";
@@ -198,7 +211,7 @@ namespace {
 	}
 }
 
-void Geant4::add_geometry_channel(RadFiled3D::CartesianRadiationField& field, const G4LogicalVolume& world_volume, int max_threads)
+void Geant4::add_geometry_channel(radfiled3d::CartesianRadiationField& field, const G4LogicalVolume& world_volume, int max_threads)
 {
 	std::vector<PlacedMesh> placed;
 	collect_placed_meshes(world_volume, G4RotationMatrix(), G4ThreeVector(), placed);
@@ -206,7 +219,7 @@ void Geant4::add_geometry_channel(RadFiled3D::CartesianRadiationField& field, co
 		return;
 
 	const auto start = std::chrono::steady_clock::now();
-	auto channel = std::static_pointer_cast<RadFiled3D::VoxelGridBuffer>(field.add_channel("geometry"));
+	auto channel = std::static_pointer_cast<radfiled3d::VoxelGridBuffer>(field.add_channel("geometry"));
 	const glm::uvec3 counts = channel->get_voxel_counts();
 	const double voxel_size = channel->get_voxel_dimensions().x;
 	const Voxelization::VoxelGrid grid{
