@@ -164,6 +164,8 @@ void VMFTrainer::add(size_t voxel_idx, const glm::vec3& direction, double weight
 	logp_buffer.resize(this->lobes);
 	double* logp = logp_buffer.data();
 	double max_logp = -INFINITY;
+
+	// Score per lobe:
 	const float* model = &this->model[voxel_idx * this->lobes * VALUES_PER_LOBE];
 	for (uint32_t k = 0; k < this->lobes; k++) {
 		const float* lobe = model + k * VALUES_PER_LOBE;
@@ -173,11 +175,15 @@ void VMFTrainer::add(size_t voxel_idx, const glm::vec3& direction, double weight
 	}
 	if (!std::isfinite(max_logp))
 		return;
+
+	// Softmax:
 	double sum = 0.0;
 	for (uint32_t k = 0; k < this->lobes; k++) {
-		logp[k] = std::exp(logp[k] - max_logp);
+		logp[k] = std::exp(logp[k] - max_logp);	// prevent overflow
 		sum += logp[k];
 	}
+
+	// Softmax update lobe:
 	double* stats = &this->current[voxel_idx * this->lobes * STATS_PER_LOBE];
 	for (uint32_t k = 0; k < this->lobes; k++) {
 		const double r = weight * logp[k] / sum;

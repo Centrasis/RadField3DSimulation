@@ -32,23 +32,48 @@ C_ARM_LAYERS = ("imagedetector", "xraytube")
 
 
 def mark_patient_overlap(rf3_path: str) -> bool:
-    """Flag a field whose C-arm collides with the patient: an ``imagedetector`` or ``xraytube`` geometry layer shares a
+    """Flag whether the C-arm collides with the patient: an ``imagedetector`` or ``xraytube`` geometry layer shares a
     voxel with the ``patient`` layer, or the tube's focal spot lies in a patient voxel.
 
-    Only overlapping fields get the byte dynamic metadata ``patient_overlap`` (value 1); others stay unchanged, so the
-    key's presence is the filter. The check works on the stored geometry channel, so a detector within one voxel of
-    the patient counts as overlapping too.
+    **Every** field gets the byte dynamic metadata ``patient_overlap`` -- 1 when it overlaps, 0 when it does not --
+    so the value is the filter, not the presence of the key. Writing it unconditionally keeps the metadata block the
+    same length across a dataset: dynamic keys are only serialised when set, so a key present in some files and
+    missing in others makes those files differ in size. Consumers that precompute file offsets once per dataset then
+    mis-seek into the voxel data of every other file. (RadFiled3D rebases per stream since the fix in
+    ``FieldAccessor::getFieldDataOffsetFor``, so older datasets stay readable -- but uniform metadata is cheaper and
+    keeps the invariant obvious.)
+
+    A field without a geometry channel or without a ``patient`` layer cannot overlap and is marked 0.
+
+    The check works on the stored geometry channel, so a detector within one voxel of the patient counts as
+    overlapping too.
 
     :param rf3_path: File path to the stored radiation field.
     :return: Whether the field overlaps.
     """
     field = FieldStore.load(rf3_path)
-    if not field.has_channel("geometry"):
+    metadata = FieldStore.load_metadata(rf3_path)
+    overlap = compute_patient_overlap(field, metadata)
+    _write_patient_overlap(field, metadata, rf3_path, overlap)
+    return overlap
+
+
+def compute_patient_overlap(field, metadata) -> bool:
+    """Whether the C-arm collides with the patient, on an already loaded field.
+
+    Split out of :func:`mark_patient_overlap` so the dataset migration can reuse exactly this
+    predicate instead of reimplementing it.
+
+    :param field: The loaded radiation field.
+    :param metadata: Its metadata (the tube origin is needed for the focal-spot check).
+    :return: Whether the field overlaps. A field without geometry or without a patient layer
+             cannot overlap and returns False.
+    """
+    geometry = field.get_channel("geometry") if field.has_channel("geometry") else None
+    layers = geometry.get_layers() if geometry is not None else []
+    if geometry is None or "patient" not in layers:
         return False
-    geometry = field.get_channel("geometry")
-    layers = geometry.get_layers()
-    if "patient" not in layers:
-        return False
+
     patient = np.squeeze(geometry.get_layer_as_ndarray("patient"), axis=-1) > 0
 
     overlap = any(
@@ -56,7 +81,6 @@ def mark_patient_overlap(rf3_path: str) -> bool:
         for layer in C_ARM_LAYERS if layer in layers
     )
 
-    metadata = FieldStore.load_metadata(rf3_path)
     if not overlap:
         # voxel centres lie at (index + 0.5) * voxel size - field size / 2
         origin = metadata.simulation.tube.radiation_origin
@@ -70,11 +94,14 @@ def mark_patient_overlap(rf3_path: str) -> bool:
         if all(0 <= i < n for i, n in zip(index, (counts.x, counts.y, counts.z))):
             overlap = bool(patient[index[0], index[1], index[2]])
 
-    if overlap:
-        if PATIENT_OVERLAP_KEY in metadata.get_dynamic_metadata_keys():
-            vx = metadata.get_dynamic_metadata(PATIENT_OVERLAP_KEY)
-        else:
-            vx = metadata.add_dynamic_metadata(PATIENT_OVERLAP_KEY, DType.BYTE)
-        vx.set_data(1)
-        FieldStore.store(field, metadata, rf3_path)
     return overlap
+
+
+def _write_patient_overlap(field, metadata, rf3_path: str, overlap: bool) -> None:
+    """Write ``patient_overlap`` (1/0) and store the field back. Always written, see above."""
+    if PATIENT_OVERLAP_KEY in metadata.get_dynamic_metadata_keys():
+        vx = metadata.get_dynamic_metadata(PATIENT_OVERLAP_KEY)
+    else:
+        vx = metadata.add_dynamic_metadata(PATIENT_OVERLAP_KEY, DType.BYTE)
+    vx.set_data(1 if overlap else 0)
+    FieldStore.store(field, metadata, rf3_path)

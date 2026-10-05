@@ -2,6 +2,7 @@
 #include <math.h>
 #include <algorithm>
 #include <numeric>
+#include <cmath>
 
 
 void Statistics::Variance::add(float value)
@@ -201,4 +202,30 @@ float Statistics::VoxelSpectraVariance::get_relative_error(size_t voxel_idx) con
 		sum += m2[i] / static_cast<float>(count);
 
 	return (sum / static_cast<float>(this->bins)) * 4.f;
+}
+
+Statistics::VoxelHistoryVariance::VoxelHistoryVariance(size_t voxel_count)
+	: sum_of_squares(voxel_count)
+{
+}
+
+void Statistics::VoxelHistoryVariance::reset()
+{
+	for (std::atomic<double>& s : this->sum_of_squares)
+		s.store(0.0, std::memory_order_relaxed);
+}
+
+void Statistics::VoxelHistoryVariance::end_history(History& history)
+{
+	for (const auto& [voxel_idx, score] : history)
+		this->sum_of_squares[voxel_idx].fetch_add(score * score, std::memory_order_relaxed);
+	history.clear();
+}
+
+double Statistics::VoxelHistoryVariance::relative_error(double sum, double sum_of_squares, size_t histories)
+{
+	if (!(sum > 0.0) || histories < 2)
+		return 1.0;
+	const double n = static_cast<double>(histories);
+	return std::sqrt(std::max(0.0, (n * sum_of_squares / (sum * sum) - 1.0) / (n - 1.0)));
 }

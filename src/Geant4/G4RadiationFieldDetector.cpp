@@ -86,7 +86,7 @@ std::shared_ptr<radfiled3d::IRadiationField> RadiationSimulation::Geant4::Radiat
 		const bool has_angular = in.has_layer("angular_flux");
 
 		radfiled3d::VoxelGridBuffer* out = static_cast<radfiled3d::VoxelGridBuffer*>(copy->add_channel(name).get());
-		out->add_layer<float>("error", 1.f, "Variance");
+		out->add_layer<float>("error", 1.f, RELATIVE_ERROR_UNIT);
 		const char* flux_unit = this->path_length_weighting ? "voxel edges / primary_particles" : "counts / primary_particles";
 		out->add_layer<float>("flux", 0.f, flux_unit);
 		out->add_custom_layer<radfiled3d::HistogramVoxel<float>>("spectrum", radfiled3d::HistogramVoxel<float>(bins, static_cast<float>(hist0.get_histogram_bin_width()), nullptr), 0.f, "eV");
@@ -121,12 +121,19 @@ std::shared_ptr<radfiled3d::IRadiationField> RadiationSimulation::Geant4::Radiat
 			}
 		}
 
-		for (size_t x = 0; x < out->get_voxel_counts().x; x++)
-			for (size_t y = 0; y < out->get_voxel_counts().y; y++)
-				for (size_t z = 0; z < out->get_voxel_counts().z; z++)
-					out->get_voxel<radfiled3d::ScalarVoxel<float>>("error", x, y, z) = src.get_statistical_error(primary_particles, x, y, z);
+		// histories the workers are still simulating count as finished: exact for the final store, and an auto-save
+		// differs by at most one partial history per worker
+		std::vector<double> pending_squares(n, 0.0);
+		{
+			std::shared_lock read_lock(this->global_detector_mutex);
+			for (const auto& [thread_id, context] : this->thread_contexts)
+				for (const auto& [voxel_idx, score] : (&src == &this->buffers.scatter_field) ? context.scatter_history : context.beam_history)
+					pending_squares[voxel_idx] += score * score;
+		}
+		for (size_t i = 0; i < n; i++)
+			out->get_voxel_flat<radfiled3d::ScalarVoxel<float>>("error", i) = static_cast<float>(src.get_relative_error(i, primary_particles, pending_squares[i]));
 
-		out->set_statistical_error("spectrum", src.get_overall_statistical_error_estimate(primary_particles));
+		out->set_statistical_error("flux", src.get_overall_statistical_error_estimate(primary_particles, this->statistical_error_enforcement_ratio));
 	}
 
 	return copy;
@@ -151,13 +158,13 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::voxelize_geometry(cons
 	this->geometry = geometry_field;
 }
 
-void RadiationSimulation::Geant4::RadiationFieldDetector::score_step_for(const G4Step* step, const glm::vec3& p1, const glm::vec3& p2, const std::vector<radfiled3d::TracedVoxel>& voxels, TrackStage stage)
+void RadiationSimulation::Geant4::RadiationFieldDetector::score_step_for(const G4Step* step, const glm::vec3& p1, const glm::vec3& p2, const std::vector<radfiled3d::TracedVoxel>& voxels, TrackStage stage, EventContext& event_context)
 {
 	const float energy = static_cast<float>(step->GetTrack()->GetTotalEnergy());
 	if (stage == TrackStage::SCATTER) {
-		this->buffers.scatter_field.score(energy, p1, p2, voxels);
+		this->buffers.scatter_field.score(energy, p1, p2, voxels, event_context.scatter_history);
 	} else if (stage == TrackStage::BEAM) {
-		this->buffers.xray_beam.score(energy, p1, p2, voxels);
+		this->buffers.xray_beam.score(energy, p1, p2, voxels, event_context.beam_history);
 	}
 }
 
@@ -257,7 +264,9 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::UserSteppingAction(con
 	}
 
 	if (thread_context_itr->second.event_id != event_id) {
-		thread_context_itr->second = EventContext(event_id);
+		// the histories of the previous event are squared inside the scoring gate below
+		thread_context_itr->second.event_id = event_id;
+		thread_context_itr->second.track_stage.clear();
 		this->tracked_events_counter++;
 		
 		try {
@@ -281,6 +290,11 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::UserSteppingAction(con
 	struct Leave { ScoringGate& gate; ~Leave() { gate.leave(); } } leave{ this->scoring_gate };
 
 	EventContext& event_context = thread_context_itr->second;
+	if (event_context.history_event_id != event_id) {
+		this->buffers.scatter_field.history_variance.end_history(event_context.scatter_history);
+		this->buffers.xray_beam.history_variance.end_history(event_context.beam_history);
+		event_context.history_event_id = event_id;
+	}
 	const size_t track_id = step->GetTrack()->GetTrackID();
 
 	std::map<size_t, TrackStage>::iterator current_track_stage_itr = event_context.track_stage.find(track_id);
@@ -347,7 +361,7 @@ void RadiationSimulation::Geant4::RadiationFieldDetector::UserSteppingAction(con
 					voxels.push_back({ idx, 1.f, true, false });
 			}
 
-			this->score_step_for(step, grid_p1, grid_p2, voxels, current_track_stage);
+			this->score_step_for(step, grid_p1, grid_p2, voxels, current_track_stage, event_context);
 		}
 	}
 

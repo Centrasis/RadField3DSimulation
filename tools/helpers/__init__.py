@@ -1,2 +1,2 @@
 from .join_field import join_rf3_file
-from .metadata_field import add_patient_translation, mark_patient_overlap
+from .metadata_field import add_patient_translation, mark_patient_overlap, compute_patient_overlap

@@ -1,6 +1,8 @@
 #pragma once
 #include <vector>
 #include <cstdint>
+#include <atomic>
+#include <unordered_map>
 #include "radfiled3d/voxel.hpp"
 
 namespace Statistics {
@@ -99,5 +101,39 @@ namespace Statistics {
 		void reset();
 
 		float get_relative_error(size_t voxel_idx) const;
+	};
+
+	/** @brief Per-voxel statistical error of a score per primary particle by the history-by-history method.
+	* The primaries are the independent samples: x_i is everything one primary and all its secondaries scored in a
+	* voxel. Squaring single steps instead would treat correlated contributions of one history (a track re-entering
+	* the voxel, a step ending inside it, scattered photons coming back, secondaries) as independent and
+	* underestimate the error. With S1 = sum x_i (the scored flux itself), S2 = sum x_i^2 and N primaries, the
+	* standard error of the mean per primary is
+	*   s = sqrt((S2 / N - (S1 / N)^2) / (N - 1)),
+	* the relative error R = s / (S1 / N) = sqrt((N S2 / S1^2 - 1) / (N - 1)) ~ sqrt(S2 / S1^2 - 1 / N).
+	* Only S2 is kept here: a history's per-voxel totals are collected in a History (one per worker thread) and
+	* squared when it ends.
+	*
+	* Walters, Kawrakow, Rogers (2002). History by history statistical estimators in the BEAM code system.
+	*   Med. Phys. 29(12), 2745-2752.
+	* Chetty et al. (2007). Report of the AAPM Task Group No. 105, Med. Phys. 34(12), 4818-4853, eq. (3b).
+	* X-5 Monte Carlo Team (2003). MCNP - A General Monte Carlo N-Particle Transport Code, Version 5, LA-UR-03-1987,
+	*   Vol. I, ch. 2 (relative error R, R < 0.1 for a reliable tally).
+	*/
+	class VoxelHistoryVariance {
+	protected:
+		std::vector<std::atomic<double>> sum_of_squares;
+	public:
+		/** Per-voxel totals of one history that is still being simulated. */
+		using History = std::unordered_map<size_t, double>;
+
+		explicit VoxelHistoryVariance(size_t voxel_count);
+		void reset();
+		/** Adds the squared per-voxel totals of a finished history and clears it. Thread-safe. */
+		void end_history(History& history);
+		double get_sum_of_squares(size_t voxel_idx) const { return this->sum_of_squares[voxel_idx].load(std::memory_order_relaxed); }
+		/** Relative standard error R of the mean score per primary from S1 = `sum`, S2 = `sum_of_squares` and
+		* N = `histories`. 1 where nothing was scored or N < 2. */
+		static double relative_error(double sum, double sum_of_squares, size_t histories);
 	};
 };
