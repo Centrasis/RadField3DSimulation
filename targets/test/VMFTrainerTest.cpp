@@ -123,16 +123,45 @@ TEST(VMFTrainer, OneSourceEndsAsOneLobe) {
 				EXPECT_EQ(raw[k * 5 + c], 0.f);
 }
 
-TEST(VMFTrainer, EmptyVoxelsStoreZeros) {
-	VMFTrainer trainer(2, 3, [](size_t) { return glm::vec3(1.f, 0.f, 0.f); });
-	trainer.add(1, glm::vec3(0.f, 1.f, 0.f));
-	trainer.m_step();
+TEST(VMFTrainer, VoxelsWithoutEnoughSamplesStoreTheUniformDistribution) {
+	const std::vector<float> uniform = { 1.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f };
+	VMFTrainer trainer(3, 3, [](size_t) { return glm::vec3(1.f, 0.f, 0.f); });
 	std::vector<float> raw(15);
+	// before any sample every voxel is uniform
 	trainer.write_lobes(0, raw.data());
-	for (float v : raw)
-		EXPECT_EQ(v, 0.f);
-	trainer.write_lobes(1, raw.data());
+	EXPECT_EQ(raw, uniform);
+
+	G4Random::setTheSeed(12);
+	const glm::vec3 source = glm::normalize(glm::vec3(0.f, 1.f, 1.f));
+	for (int i = 0; i < 19; i++)
+		trainer.add(1, sample_vmf(source, 50.0));
+	for (int i = 0; i < 20; i++)
+		trainer.add(2, sample_vmf(source, 50.0));
+	trainer.m_step();
+	trainer.write_lobes(0, raw.data());
+	EXPECT_EQ(raw, uniform);
+	trainer.write_lobes(1, raw.data());                   // 19 of the 20 effective samples needed
+	EXPECT_EQ(raw, uniform);
+	trainer.write_lobes(2, raw.data());                   // enough: fitted towards the source
 	EXPECT_NEAR(raw[0] + raw[5] + raw[10], 1.f, 1e-6f);
+	EXPECT_GT(glm::dot(glm::vec3(raw[1], raw[2], raw[3]), source), 0.9f);
+
+	// unequal weights count less: 30 samples, one of them carrying almost all the weight
+	VMFTrainer weighted(1, 2, [](size_t) { return glm::vec3(1.f, 0.f, 0.f); });
+	weighted.add(0, source, 100.0);
+	for (int i = 0; i < 29; i++)
+		weighted.add(0, sample_vmf(source, 50.0), 1.0);
+	weighted.m_step();
+	weighted.write_lobes(0, raw.data());
+	EXPECT_EQ(std::vector<float>(raw.begin(), raw.begin() + 10), std::vector<float>(uniform.begin(), uniform.begin() + 10));
+
+	// the threshold is a parameter; 0 stores the fit of a single sample
+	VMFTrainer eager(1, 2, [](size_t) { return glm::vec3(1.f, 0.f, 0.f); }, 0.0);
+	eager.add(0, source);
+	eager.m_step();
+	eager.write_lobes(0, raw.data());
+	EXPECT_GT(glm::dot(glm::vec3(raw[1], raw[2], raw[3]), source), 0.99f);
+
 	EXPECT_THROW(VMFTrainer(1, 0, [](size_t) { return glm::vec3(1.f, 0.f, 0.f); }), std::invalid_argument);
 }
 
@@ -156,13 +185,12 @@ TEST(VMFTrainer, WeightedSamplesCountLikeRepeatedOnes) {
 	repeated.write_lobes(0, r.data());
 	for (size_t i = 0; i < w.size(); i++)
 		EXPECT_NEAR(w[i], r[i], 1e-4f * std::max(1.f, std::abs(r[i])));
-	// a zero weight adds nothing
+	// a zero weight adds nothing: the voxel stays uniform
 	VMFTrainer empty(1, 2, [](size_t) { return glm::vec3(1.f, 0.f, 0.f); });
 	empty.add(0, a, 0.0);
 	empty.m_step();
 	empty.write_lobes(0, w.data());
-	for (float v : w)
-		EXPECT_EQ(v, 0.f);
+	EXPECT_EQ(w, (std::vector<float>{ 1.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f }));
 }
 
 TEST(VMFTrainer, CompactSourceAndWideBackgroundStaySeparate) {

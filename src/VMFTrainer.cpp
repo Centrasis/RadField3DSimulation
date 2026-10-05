@@ -100,13 +100,16 @@ namespace {
 	}
 }
 
-VMFTrainer::VMFTrainer(size_t voxel_count, uint32_t lobes, const std::function<glm::vec3(size_t)>& initial_direction)
+VMFTrainer::VMFTrainer(size_t voxel_count, uint32_t lobes, const std::function<glm::vec3(size_t)>& initial_direction, double min_samples)
 	: voxel_count(voxel_count),
 	  lobes(lobes),
+	  min_samples(min_samples),
 	  model(voxel_count * lobes * VALUES_PER_LOBE, 0.f),
 	  log_norm(voxel_count * lobes, 0.f),
 	  current(voxel_count * lobes * STATS_PER_LOBE, 0.0),
-	  previous(voxel_count * lobes * STATS_PER_LOBE, 0.0)
+	  previous(voxel_count * lobes * STATS_PER_LOBE, 0.0),
+	  current_squared_weights(voxel_count, 0.0),
+	  previous_squared_weights(voxel_count, 0.0)
 {
 	if (lobes < 1)
 		throw std::invalid_argument("VMFTrainer: at least one lobe is required");
@@ -192,6 +195,7 @@ void VMFTrainer::add(size_t voxel_idx, const glm::vec3& direction, double weight
 		stats[k * STATS_PER_LOBE + 2] += r * direction.y;
 		stats[k * STATS_PER_LOBE + 3] += r * direction.z;
 	}
+	this->current_squared_weights[voxel_idx] += weight * weight;
 }
 
 void VMFTrainer::fit(const double* stats, const float* fallback, float* out, bool merge) const
@@ -235,6 +239,8 @@ void VMFTrainer::m_step()
 	}
 	this->previous.swap(this->current);
 	std::fill(this->current.begin(), this->current.end(), 0.0);
+	this->previous_squared_weights.swap(this->current_squared_weights);
+	std::fill(this->current_squared_weights.begin(), this->current_squared_weights.end(), 0.0);
 	this->passes++;
 }
 
@@ -247,8 +253,12 @@ void VMFTrainer::write_lobes(size_t voxel_idx, float* out) const
 		if (i % STATS_PER_LOBE == 0)
 			total += stats[i];
 	}
-	if (total <= 0.0) {
+	const double squared_weights = this->current_squared_weights[voxel_idx] + this->previous_squared_weights[voxel_idx];
+	const double effective_samples = (squared_weights > 0.0) ? total * total / squared_weights : 0.0;
+	if (total <= 0.0 || effective_samples < this->min_samples) {
 		std::fill(out, out + this->lobes * VALUES_PER_LOBE, 0.f);
+		out[0] = 1.f;
+		out[3] = 1.f;
 		return;
 	}
 	this->fit(stats.data(), &this->model[voxel_idx * this->lobes * VALUES_PER_LOBE], out, true);
