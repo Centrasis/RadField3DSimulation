@@ -93,7 +93,7 @@ void SetupMesh(json& mesh_desc, std::shared_ptr<Mesh> mesh, const std::map<std::
     }
 
     if (mesh_desc.find("Source") != mesh_desc.end())
-        throw std::runtime_error("Mesh \"" + mesh->getName() + "\": \"Source\"/\"SourceOffsets\" are no longer supported; give meshes that move with the C-arm the Type \"ImageDetector\" or \"XRayTube\".");
+        throw std::runtime_error("Mesh \"" + mesh->getName() + "\": \"Source\"/\"SourceOffsets\" are no longer supported; give meshes that move with the C-arm the Type \"ImageDetector\", \"XRayTube\" or \"CArm\".");
 }
 
 std::vector<std::shared_ptr<Mesh>> GeometryLoader::Load(const std::string& path, std::string description_file)

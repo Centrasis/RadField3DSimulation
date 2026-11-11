@@ -47,6 +47,9 @@ namespace RadiationSimulation::Geant4 {
 		std::vector<G4ThreeVector> placedBoundingBoxCorners() const;
 		double getLengthUnit() const { return this->length_unit; }
 		inline const std::vector<std::shared_ptr<Mesh>>& getChildren() const { return this->children; }
+		/** Whether the placed volume overlaps its mother's other daughters or sticks out of the mother, tested with
+		* `points` random points on its surface (G4PVPlacement::CheckOverlaps, which reports the first overlap). */
+		bool overlapsAfterPlacement(int points) const;
 		/** Materials of this volume and of all its children, each once, as set by the SceneConstructor. */
 		std::vector<const G4Material*> getMaterials() const;
 	};

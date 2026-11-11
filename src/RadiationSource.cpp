@@ -22,21 +22,15 @@ RadiationSource::RadiationSource(float energy_eV, std::string particle_name, std
 void RadiationSource::setTransform(const glm::vec3& location, const glm::vec3& orientation)
 {
 	this->location = location;
-	this->rotation = glm::quat_cast(glm::mat4(1.0f));
-	const glm::vec3 normalizedOrientation = glm::normalize(orientation);
-	const glm::vec3 up(0.0f, 0.0f, -1.0f);
-
-	if (normalizedOrientation == up) {
-		return;
-	}
-	glm::vec3 axis = glm::cross(up, normalizedOrientation);
-	// exactly opposite to the reference axis the shortest rotation has no axis of its own: turn about X
-	if (glm::length(axis) < 1e-6f) {
-		this->rotation = glm::angleAxis(glm::pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f));
-		return;
-	}
-	float angle = acos(glm::clamp(glm::dot(up, normalizedOrientation), -1.0f, 1.0f));
-	this->rotation = glm::angleAxis(angle, glm::normalize(axis));
+	const glm::vec3 beam = glm::normalize(orientation);
+	// The frame of a C-arm: the arm turns about the patient's long axis Z and tilts about X, so the collimator's x edge
+	// stays horizontal and perpendicular to the beam, x = beam × Z (base pose: x along X, y along Z). It is the
+	// shortest rotation only for beams in the YZ plane; with the beam along ±Z the turn about Z is taken as zero.
+	glm::vec3 x = glm::cross(beam, glm::vec3(0.0f, 0.0f, 1.0f));
+	x = (glm::length(x) < 1e-6f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::normalize(x);
+	const glm::vec3 z = -beam;
+	const glm::vec3 y = glm::cross(z, x);
+	this->rotation = glm::normalize(glm::quat_cast(glm::mat3(x, y, z)));
 }
 
 glm::quat RadiationSource::getCArmRotation() const
@@ -44,6 +38,12 @@ glm::quat RadiationSource::getCArmRotation() const
 	// base pose: beam along +Y, which the source reaches from its reference axis -Z by a quarter turn about X
 	const glm::quat base_pose = glm::angleAxis(glm::half_pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f));
 	return this->rotation * glm::inverse(base_pose);
+}
+
+glm::quat RadiationSource::getCArmStructureRotation() const
+{
+	// in the base pose the beam runs along +Y
+	return this->getCArmRotation() * glm::angleAxis(this->c_arm_psi, glm::vec3(0.0f, 1.0f, 0.0f));
 }
 
 glm::vec3 RadiationSimulation::RadiationSource::drawRayDirection(const UniformRandom& uniform)

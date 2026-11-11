@@ -40,6 +40,8 @@ struct DeviceParams {
     float distance, rect_w, rect_h, cone_half_rad, focal_spot_m;
     int shape;
     float wx, wy, wz;  // world half-extent
+    int plate;         // 1: the thin detector plate attenuates the direct beam
+    float plate_s0, plate_u0, plate_u1, plate_v0, plate_v1;
 };
 
 // Smooth beam-edge coverage in [0,1] from a finite focal spot: the penumbra half-width at axial
@@ -78,7 +80,8 @@ __device__ float sample_density_tri(const float* __restrict__ d, const DevicePar
 // Direct beam: fixed-step radiological path from the focal spot to each voxel center, per-bin
 // Beer-Lambert attenuation of the (already collimated) primary fluence.
 __global__ void k_direct(DeviceParams p, const float* __restrict__ density,
-                         const float* __restrict__ spectrum, float* __restrict__ direct_spec)
+                         const float* __restrict__ spectrum, const float* __restrict__ plate_tau,
+                         float* __restrict__ direct_spec)
 {
     const int v = blockIdx.x * blockDim.x + threadIdx.x;
     const int n = p.nx * p.ny * p.nz;
@@ -138,9 +141,20 @@ __global__ void k_direct(DeviceParams p, const float* __restrict__ density,
         radio += sample_density_tri(density, p, p.ox + f * rx, p.oy + f * ry, p.oz + f * rz) * seg;
     }
 
+    // The thin detector plate perpendicular to the beam axis: the ray from the focal spot to this voxel crosses its plane at
+    // the fraction plate_s0 / t_ax of its length; if that point lies on the plate, the oblique path is 1 / cos(angle) longer.
+    float plate_path = 0.f;
+    if (p.plate && t_ax > p.plate_s0) {
+        const float lambda = p.plate_s0 / t_ax;
+        const float u = lambda * (rx * p.e1x + ry * p.e1y + rz * p.e1z);
+        const float w = lambda * (rx * p.e2x + ry * p.e2y + rz * p.e2z);
+        if (u >= p.plate_u0 && u <= p.plate_u1 && w >= p.plate_v0 && w <= p.plate_v1)
+            plate_path = dist / t_ax;
+    }
+
     for (int b = 0; b < p.bins; ++b) {
         const float e_kev = (b + 0.5f) * p.bin_width_ev / 1000.f;
-        const float tau = loglog(e_kev, c_e_kev, c_mu_rho) * radio * 100.f;
+        const float tau = loglog(e_kev, c_e_kev, c_mu_rho) * radio * 100.f + ((plate_path > 0.f) ? plate_tau[b] * plate_path : 0.f);
         out[b] = spectrum[b] * expf(-tau) * fluence;
     }
 }
@@ -282,10 +296,19 @@ void run_analytical(const AnalyticalParams& params,
     dp.distance = params.distance; dp.rect_w = params.rect_w; dp.rect_h = params.rect_h;
     dp.cone_half_rad = params.cone_half_rad; dp.shape = params.shape; dp.focal_spot_m = params.focal_spot_m;
     dp.wx = 0.5f * nx * params.voxel_m; dp.wy = 0.5f * ny * params.voxel_m; dp.wz = 0.5f * nz * params.voxel_m;
+    const AnalyticalPlate& plate = params.plate;
+    if (plate.present && (int)plate.optical_thickness.size() != bins)
+        throw std::runtime_error("the detector plate needs one optical thickness per spectrum bin");
+    dp.plate = plate.present ? 1 : 0;
+    dp.plate_s0 = plate.entrance_m; dp.plate_u0 = plate.u0; dp.plate_u1 = plate.u1; dp.plate_v0 = plate.v0; dp.plate_v1 = plate.v1;
 
-    float *d_density, *d_spectrum, *d_direct_spec, *d_q, *d_scatter_spec, *d_compton;
+    float *d_density, *d_spectrum, *d_direct_spec, *d_q, *d_scatter_spec, *d_compton, *d_plate_tau;
     CUDA_CHECK(cudaMalloc(&d_density, (size_t)n * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_spectrum, (size_t)bins * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_plate_tau, (size_t)bins * sizeof(float)));
+    CUDA_CHECK(cudaMemset(d_plate_tau, 0, (size_t)bins * sizeof(float)));
+    if (plate.present)
+        CUDA_CHECK(cudaMemcpy(d_plate_tau, plate.optical_thickness.data(), (size_t)bins * sizeof(float), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMalloc(&d_direct_spec, (size_t)n * bins * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_q, (size_t)n * bins * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_scatter_spec, (size_t)n * bins * sizeof(float)));
@@ -297,7 +320,7 @@ void run_analytical(const AnalyticalParams& params,
 
     const int threads = 256;
     const int blocks = (n + threads - 1) / threads;
-    k_direct<<<blocks, threads>>>(dp, d_density, d_spectrum, d_direct_spec);
+    k_direct<<<blocks, threads>>>(dp, d_density, d_spectrum, d_plate_tau, d_direct_spec);
     CUDA_CHECK(cudaGetLastError());
     k_scatter_source<<<blocks, threads>>>(dp, d_density, d_direct_spec, d_compton, d_q);
     CUDA_CHECK(cudaGetLastError());
@@ -351,7 +374,7 @@ void run_analytical(const AnalyticalParams& params,
     CUDA_CHECK(cudaMemcpy(out.scatter.spectrum, d_snorm, (size_t)n * bins * sizeof(float), cudaMemcpyDeviceToHost));
 
     cufftDestroy(plan_r2c); cufftDestroy(plan_c2r);
-    for (void* p : {(void*)d_density, (void*)d_spectrum, (void*)d_direct_spec, (void*)d_q, (void*)d_scatter_spec,
+    for (void* p : {(void*)d_density, (void*)d_plate_tau, (void*)d_spectrum, (void*)d_direct_spec, (void*)d_q, (void*)d_scatter_spec,
                     (void*)d_compton, (void*)d_pad, (void*)d_specF, (void*)d_kernF, (void*)d_dflux, (void*)d_dnorm,
                     (void*)d_derr, (void*)d_sflux, (void*)d_snorm, (void*)d_serr})
         cudaFree(p);

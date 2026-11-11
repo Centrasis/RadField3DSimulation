@@ -8,8 +8,10 @@
 //
 // The tube/source setup (spectrum loading + random energy sampling, source shapes, placement) reuses
 // the exact classes the Geant4 binary uses (RadField3D.cpp); only the transport is new (GPU tracer).
+#include "analytical/AnalyticalAttenuation.hpp"
 #include "analytical/AnalyticalTracer.hpp"
 #include "analytical/AnalyticalVoxelizer.hpp"
+#include "CArm.hpp"
 #include "GeometryLoader.hpp"
 #include "RadiationSource.hpp"
 #include "Voxelization.hpp"
@@ -54,7 +56,7 @@ namespace {
 struct Cli {
     std::string out, spectrum, geom, geom_desc, source_shape = "rectangle";
     double max_energy = 0.0, energy_resolution = 1000.0;
-    float source_phi = 0.f, source_theta = 0.f, source_distance = 1.f, voxel_dim = 0.1f;
+    float source_phi = 0.f, source_theta = 0.f, source_psi = 0.f, source_distance = 1.f, voxel_dim = 0.1f;
     glm::vec3 world_dim = glm::vec3(1.f);
     glm::vec2 opening = glm::vec2(0.f);  // cone: (deg, 0); rectangle: (w, h) in metres
     float particles = 1e6f;
@@ -105,6 +107,7 @@ try {
         else if (arg == "--max-energy") { cli.max_energy = std::stod(next()); i += 2; }
         else if (arg == "--source-phi") { cli.source_phi = std::stof(next()); i += 2; }
         else if (arg == "--source-theta") { cli.source_theta = std::stof(next()); i += 2; }
+        else if (arg == "--source-psi") { cli.source_psi = std::stof(next()); i += 2; }
         else if (arg == "--source-distance") { cli.source_distance = std::stof(next()); i += 2; }
         else if (arg == "--voxel-dim") { cli.voxel_dim = std::stof(next()); i += 2; }
         else if (arg == "--energy-resolution") { cli.energy_resolution = std::stod(next()); i += 2; }
@@ -181,6 +184,7 @@ try {
     const glm::quat beta = glm::angleAxis(glm::radians(cli.source_theta), glm::vec3(1.f, 0.f, 0.f));
     const glm::vec3 dir = (beta * alpha) * glm::vec3(0.f, 0.f, -1.f);
     source->setTransform(-dir * cli.source_distance, dir);  // reuse: origin + collimation frame
+    source->setCArmPsi(glm::radians(cli.source_psi));
     const glm::vec3 origin = source->getLocation();
     const glm::mat3 rot = glm::mat3_cast(source->getRotation());
     const glm::vec3 e1 = rot * glm::vec3(1.f, 0.f, 0.f);
@@ -191,6 +195,12 @@ try {
     std::vector<std::shared_ptr<Mesh>> meshes;
     if (!cli.geom.empty()) {
         meshes = GeometryLoader::Load(cli.geom, cli.geom_desc);
+        // meshes of type ImageDetector / XRayTube / CArm turn with the C-arm, as in the Geant4 binary
+        const CArm::Pose c_arm{ source->getCArmRotation(), source->getLocation(), source->getShape()->getHalfTangents(), source->getCArmStructureRotation() };
+        for (const auto& mesh : meshes) {
+            if (const auto distance = CArm::place(*mesh, c_arm))
+                std::cout << "Image detector \"" << mesh->getName() << "\": entrance face " << *distance << " m from the isocentre" << std::endl;
+        }
         density = AnalyticalVoxelizer::voxelize_density(meshes, glm::ivec3(nx, ny, nz), cli.voxel_dim);
     }
 
@@ -203,6 +213,30 @@ try {
     p.distance = cli.source_distance;
     p.particles = cli.particles;
     p.focal_spot_m = cli.focal_spot;
+    // The image detector is a sub-voxel thin plate perpendicular to the beam: it attenuates the direct beam as a plate of
+    // its own material (not part of the density grid, see AnalyticalVoxelizer::voxelize_density).
+    for (const auto& mesh : meshes) {
+        if (!mesh->isImageDetector())
+            continue;
+        if (p.plate.present)
+            throw std::runtime_error("the analytical simulator supports one image detector, but the geometry has more");
+        const glm::mat3 rotation = glm::mat3_cast(mesh->getRotation());
+        float s_lo = std::numeric_limits<float>::max(), s_hi = -s_lo, u_lo = s_lo, u_hi = -s_lo, v_lo = s_lo, v_hi = -s_lo;
+        for (const glm::vec3& vertex : mesh->getVertices()) {
+            const glm::vec3 from_source = mesh->getPosition() + rotation * (vertex * mesh->getScale()) - origin;
+            const float s = glm::dot(from_source, dir), u = glm::dot(from_source, e1), v = glm::dot(from_source, e2);
+            s_lo = std::min(s_lo, s); s_hi = std::max(s_hi, s);
+            u_lo = std::min(u_lo, u); u_hi = std::max(u_hi, u);
+            v_lo = std::min(v_lo, v); v_hi = std::max(v_hi, v);
+        }
+        const float density = AnalyticalVoxelizer::material_density(mesh->getMaterialName());
+        p.plate.present = true;
+        p.plate.entrance_m = s_lo;
+        p.plate.u0 = u_lo; p.plate.u1 = u_hi; p.plate.v0 = v_lo; p.plate.v1 = v_hi;
+        p.plate.optical_thickness = AttenuationTable::optical_thickness(mesh->getMaterialName(), density, s_hi - s_lo, bins, (float)bin_width_ev);
+        std::cout << "Image detector \"" << mesh->getName() << "\" attenuates the direct beam as a " << (s_hi - s_lo) * 1000.f << " mm plate of "
+                  << mesh->getMaterialName() << (AttenuationTable::has_table(mesh->getMaterialName()) ? "" : " (water-like, scaled by density)") << std::endl;
+    }
     if (field_shape == radfiled3d::typing::FieldShape::Rectangle) {
         const glm::vec2 rect = static_cast<const RectangleSourceShape*>(source->getShape())->getFieldSizeMeters();
         p.shape = 0; p.rect_w = rect.x; p.rect_h = rect.y;
@@ -220,8 +254,10 @@ try {
 
     auto make_channel = [&](const char* name) -> AnalyticalChannelBuffers {
         auto* buf = static_cast<radfiled3d::VoxelGridBuffer*>(field->add_channel(name).get());
-        buf->add_layer<float>("error", 1.f, "Variance");
-        buf->add_layer<float>("flux", 0.f, "counts");
+        // units as the Monte-Carlo detector writes them (G4RadiationFieldDetector::RELATIVE_ERROR_UNIT and its flux unit); the
+        // error layer is the relative error a Monte-Carlo run of --particles photons would have (Poisson, see k_finalize)
+        buf->add_layer<float>("error", 1.f, "relative std. error of flux");
+        buf->add_layer<float>("flux", 0.f, "voxel edges / primary_particles");
         buf->add_custom_layer<radfiled3d::HistogramVoxel<float>>(
             "spectrum", radfiled3d::HistogramVoxel<float>(bins, bin_width_mev, nullptr), 0.f, "eV");
         // VoxelLayer data buffers are contiguous (x-fastest); voxel 0's data is the buffer base.
@@ -258,6 +294,8 @@ try {
         metadata->add_dynamic_metadata<glm::vec2>("xray_tube_field_rect_dimensions_m", glm::vec2(p.rect_w, p.rect_h));
     else
         metadata->add_dynamic_metadata<float>("xray_tube_opening_angle_deg", cli.opening.x);
+    metadata->add_dynamic_metadata<uint8_t>(RadiationSource::SOURCE_FRAME_KEY, RadiationSource::SOURCE_FRAME_CARM);
+    metadata->add_dynamic_metadata<float>(RadiationSource::C_ARM_PSI_KEY, cli.source_psi);
 
     add_geometry_channel(*field, meshes);
 

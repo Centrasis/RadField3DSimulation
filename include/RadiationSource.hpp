@@ -130,8 +130,18 @@ namespace RadiationSimulation {
 		const std::string particle_name; ///< Name of the particle.
 		glm::quat rotation = glm::quat_cast(glm::mat3(1.f)); ///< Transformation matrix.
 		glm::vec3 location = glm::vec3(0.f);
+		float c_arm_psi = 0.f; ///< Turn of the C-arm structure about the beam axis (rad).
 		std::unique_ptr<ISourceShape> shape; ///< Shape of the radiation source.
 	public:
+		/** Byte field metadata naming the source frame the field was simulated in, so the collimator's x/y
+		* (xray_tube_field_rect_dimensions_m) can be put back into the world: SOURCE_FRAME_CARM for setTransform's
+		* C-arm frame. Fields without the key used the shortest rotation from -Z onto the beam, which rolls the
+		* field about the beam (x edge = shortest-arc image of X). */
+		static constexpr const char* SOURCE_FRAME_KEY = "xray_tube_source_frame";
+		static constexpr uint8_t SOURCE_FRAME_CARM = 1;
+		/// Float field metadata: the turn psi (deg) of the C-arm structure about the beam axis, see setCArmPsi.
+		static constexpr const char* C_ARM_PSI_KEY = "c_arm_psi_deg";
+
 		/**
 		 * @brief Constructor for RadiationSource.
 		 * @param energy_eV Energy of the radiation in electron volts.
@@ -174,9 +184,18 @@ namespace RadiationSimulation {
 		/**
 		 * @brief Rotation of the tube (and with it the C-arm) from its base pose: below the isocentre, beam along +Y
 		 * (the pose of --source-theta 90 --source-phi 0). Uses the rotation that orients the beam and its collimated
-		 * field, so meshes turned with it stay aligned with the field.
+		 * field, so meshes turned with it stay aligned with the field. It is a turn about the patient's long axis Z
+		 * after a tilt about X, never a roll about the beam.
 		 */
 		glm::quat getCArmRotation() const;
+
+		/** Turn psi (rad) of the C-arm structure about the beam axis, right-handed about the beam direction. It moves only
+		* meshes of Type CArm: beam, collimator, image detector and tube housing keep the frame of getCArmRotation(). */
+		inline void setCArmPsi(float psi_rad) { this->c_arm_psi = psi_rad; }
+		inline float getCArmPsi() const { return this->c_arm_psi; }
+
+		/// Rotation of meshes of Type CArm from the base pose: getCArmRotation() after the turn psi about the beam.
+		glm::quat getCArmStructureRotation() const;
 
 		/**
 		 * @brief Draws a ray direction.
@@ -188,7 +207,9 @@ namespace RadiationSimulation {
 		/**
 		 * @brief Sets the transformation matrix of the radiation source.
 		 * @param location The location of the source.
-		 * @param orientation The orientation of the source.
+		 * @param orientation The beam direction. The source frame follows a C-arm: its x axis (the collimator's x
+		 * edge) is orientation × Z, so the field never rolls about the beam against the patient (frame "carm" in
+		 * the field metadata, see SOURCE_FRAME_KEY).
 		 */
 		void setTransform(const glm::vec3& location, const glm::vec3& orientation);
 

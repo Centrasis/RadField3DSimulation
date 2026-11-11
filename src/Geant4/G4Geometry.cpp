@@ -163,6 +163,13 @@ double Geant4::Mesh::fitToBeam(double source_distance, const glm::vec2& half_tan
 	return distance;
 }
 
+bool Geant4::Mesh::overlapsAfterPlacement(int points) const
+{
+	if (this->physical == nullptr)
+		throw std::runtime_error("Mesh \"" + this->mesh->getName() + "\" is not placed, so it cannot be checked for overlaps.");
+	return this->physical->CheckOverlaps(points, 0., true, 1);
+}
+
 std::vector<G4ThreeVector> Geant4::Mesh::placedBoundingBoxCorners() const
 {
 	const auto& [lo, hi] = this->mesh->bounding_box;

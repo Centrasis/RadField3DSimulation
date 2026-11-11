@@ -254,8 +254,10 @@ if(BUILD_ANALYTICAL)
   add_executable(RadField3D-Analytical
     ${PROJECT_SOURCE_DIR}/targets/analytical/main.cpp
     ${PROJECT_SOURCE_DIR}/targets/analytical/AnalyticalVoxelizer.cpp
+    ${PROJECT_SOURCE_DIR}/targets/analytical/AnalyticalAttenuation.cpp
     ${PROJECT_SOURCE_DIR}/targets/analytical/AnalyticalTracer.cu
     ${PROJECT_SOURCE_DIR}/src/GeometryLoader.cpp
+    ${PROJECT_SOURCE_DIR}/src/CArm.cpp
     ${PROJECT_SOURCE_DIR}/src/Geometry.cpp
     ${PROJECT_SOURCE_DIR}/src/Collisions.cpp
     ${PROJECT_SOURCE_DIR}/src/RadiationSource.cpp
@@ -389,6 +391,10 @@ if(BUILD_TESTS)
   add_executable(VMFTrainerTest ${PROJECT_SOURCE_DIR}/targets/test/VMFTrainerTest.cpp)
   link_test_target(VMFTrainerTest)
 
+  # no Geant4 or CUDA in the code under test: it is compiled into the test directly, so this runs without BUILD_ANALYTICAL
+  add_executable(AnalyticalAttenuationTest ${PROJECT_SOURCE_DIR}/targets/test/AnalyticalAttenuationTest.cpp ${PROJECT_SOURCE_DIR}/targets/analytical/AnalyticalAttenuation.cpp)
+  link_test_target(AnalyticalAttenuationTest)
+
   set_target_properties(WorldTest PROPERTIES FOLDER "Tests")
   set_target_properties(CollisionTest PROPERTIES FOLDER "Tests")
   set_target_properties(DetectorTest PROPERTIES FOLDER "Tests")
@@ -401,6 +407,7 @@ if(BUILD_TESTS)
   set_target_properties(SpectrumSamplingTest PROPERTIES FOLDER "Tests")
   set_target_properties(PhysicsListTest PROPERTIES FOLDER "Tests")
   set_target_properties(VMFTrainerTest PROPERTIES FOLDER "Tests")
+  set_target_properties(AnalyticalAttenuationTest PROPERTIES FOLDER "Tests")
   set_target_properties(HistogramStatisticsTest PROPERTIES FOLDER "Tests")
   set_target_properties(SourceDistributionTests PROPERTIES FOLDER "Tests")
 
@@ -419,6 +426,7 @@ if(BUILD_TESTS)
   gtest_discover_tests(FieldAppendTest)
   gtest_discover_tests(SpectrumSamplingTest)
   gtest_discover_tests(VMFTrainerTest)
+  gtest_discover_tests(AnalyticalAttenuationTest)
  # gtest_discover_tests(RSLibLoadTest)
 endif()
 

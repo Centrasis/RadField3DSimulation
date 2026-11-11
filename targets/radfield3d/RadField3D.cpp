@@ -1,5 +1,6 @@
 #include "RadiationSimulation.hpp"
 #include "GeometryLoader.hpp"
+#include "CArm.hpp"
 #include "FieldAppend.hpp"
 #include <stdio.h>
 #include <iostream>
@@ -91,6 +92,8 @@ void store_radiation_field(std::shared_ptr<radfiled3d::IRadiationField> field, f
 		field_dims_or_angles = dynamic_cast<const RadiationSimulation::RectangleSourceShape*>(actual_field_shape)->getFieldSizeMeters();
 		metadata->add_dynamic_metadata<glm::vec2>("xray_tube_field_rect_dimensions_m", field_dims_or_angles);
 	}
+	metadata->add_dynamic_metadata<uint8_t>(RadiationSimulation::RadiationSource::SOURCE_FRAME_KEY, RadiationSimulation::RadiationSource::SOURCE_FRAME_CARM);
+	metadata->add_dynamic_metadata<float>(RadiationSimulation::RadiationSource::C_ARM_PSI_KEY, glm::degrees(source->getCArmPsi()));
 	if (field_shape == radfiled3d::typing::FieldShape::Ellipsis) {
 		field_dims_or_angles = dynamic_cast<const RadiationSimulation::EllipsoidSourceShape*>(actual_field_shape)->getOpeningAnglesDegrees();
 		metadata->add_dynamic_metadata<glm::vec2>("xray_tube_field_ellipsis_opening_angles_deg", field_dims_or_angles);
@@ -120,6 +123,7 @@ try {
 	double max_energy = 0.0;
 	float source_angle_phi = 0.f;
 	float source_angle_theta = 0.f;
+	float source_angle_psi = 0.f;
 	float source_distance = 1.f;
 	radfiled3d::typing::FieldShape field_shape;
 	glm::vec3 source_opening_angle = glm::vec3(20.f);
@@ -155,6 +159,7 @@ try {
 		G4cout << "  --max-energy: Maximum Energy of the X-Raytube in eV to expect" << G4endl;
 		G4cout << "  --source-phi: Y-Rotation of the X-Raytube in deg" << G4endl;
 		G4cout << "  --source-theta:  Z-Rotation of the X-Raytube in deg" << G4endl;
+		G4cout << "  --source-psi: Turn of the C-arm (meshes of Type CArm) about the beam axis in deg; beam and field stay. Default: 0" << G4endl;
 		G4cout << "  --particles: Maximum number of particles to process" << G4endl;
 		G4cout << "  --voxel-dim: Voxel dimensions in m" << G4endl;
 		G4cout << "  --world-dim: World dimensions in m 'x y z'" << G4endl;
@@ -330,6 +335,16 @@ try {
 			}
 			catch (std::exception& e) {
 				G4cerr << "Invalid argument for source alpha: " << value << G4endl;
+				throw e;
+			}
+			continue;
+		}
+		if (arg == "--source-psi") {
+			try {
+				source_angle_psi = std::stof(value);
+			}
+			catch (std::exception& e) {
+				G4cerr << "Invalid argument for source psi: " << value << G4endl;
 				throw e;
 			}
 			continue;
@@ -526,7 +541,7 @@ try {
 	}
 
 	G4cout << "Set X-Ray source energy to: " << xray_energy / 1e+3 << "keV" << G4endl;
-	G4cout << "Set X-Ray source rotation (" << source_angle_phi << "°, " << source_angle_theta << "°)" << G4endl;
+	G4cout << "Set X-Ray source rotation (" << source_angle_phi << "°, " << source_angle_theta << "°), C-arm turned by " << source_angle_psi << "° about the beam" << G4endl;
 	G4cout << "Set X-Ray source distance to " << source_distance << " m" << G4endl;
 	G4cout << "Set tracking energy maximum to " << max_energy / 1e+3 << "keV" << G4endl;
 
@@ -542,6 +557,7 @@ try {
 	// and apply the combined rotation
 	const glm::vec3 source_dir = combined_rotation * glm::vec3(0.f, 0.f, -1.f);
 	source->setTransform(-source_dir * source_distance, source_dir);
+	source->setCArmPsi(glm::radians(source_angle_psi));
 	RadiationSimulator::add_radiation_source(source);
 	RadiationSimulator::add_geometry(meshes);
 
@@ -591,7 +607,15 @@ try {
 	}
 #endif
 
-	auto field = RadiationSimulator::simulate_radiation_field(particle_count, tracing_algorithm, path_length_weighting);
+	std::shared_ptr<radfiled3d::IRadiationField> field;
+	try {
+		field = RadiationSimulator::simulate_radiation_field(particle_count, tracing_algorithm, path_length_weighting);
+	}
+	catch (const RadiationSimulation::Geometry::CArm::PoseCollision& e) {
+		G4cerr << e.what() << " The pose is rejected, no field is written." << G4endl;
+		RadiationSimulator::deinitialize();
+		return RadiationSimulation::Geometry::CArm::POSE_COLLISION_EXIT_CODE;
+	}
 	last_particle_count = G4::World::Get()->get_radiation_field_detector()->get_number_of_tracked_particles();
 	try {
 		store_radiation_field(field, out_path, last_particle_count, source, geometry_file.string(), spectrum_file.string(), source_dir, source_distance, xray_energy, should_append_to_file, start_time, field_shape, random_seed);

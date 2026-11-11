@@ -47,6 +47,10 @@ def _add_layer_like(src_channel, dst_channel, layer_name: str) -> None:
 VMF_JOIN_MODES = ("beam_lobe", "beam_lobe_merged", "scatter_only")
 VMF_LAYER = "vmf_lobes"
 _VALUES_PER_LOBE = 5
+# A beam lobe fused with a forward-scatter lobe by the store's merge is stored this wide at most (the store's cap)
+# and up to about 0.8 degrees off the focal-spot ray; see reduce_joined_vmf_lobes.
+BEAM_KAPPA_STORED_MAX = 1.0e4
+BEAM_COS_TOLERANCE = 1.0e-4
 
 
 def beam_lobe_kappa(distance, voxel_edge: float):
@@ -287,27 +291,32 @@ def reduce_joined_vmf_lobes(path: str, lobes: int, channel: str = "radiation") -
     lit = np.flatnonzero(flat[:, :, 0].sum(axis=-1) > 0)
     means, kappas = _voxel_geometry(counts, voxel_dims, lit, focal_spot)
     lobes_lit = flat[lit]
-    is_beam = (
-        (lobes_lit[:, :, 0] > 0)
-        & np.isclose(lobes_lit[:, :, 4], kappas[:, None], rtol=1e-4)
-        & (np.einsum("vkc,vc->vk", lobes_lit[:, :, 1:4], means) > 1.0 - 1e-6)
-    )
-    if np.any(is_beam.sum(axis=-1) > 1):
-        raise ValueError(f"{path}: more than one lobe of a voxel looks like the beam lobe")
-    # a joined layout leaves the beam's slot empty where there is no beam; all slots used means scatter lobes only
-    if np.any(~is_beam.any(axis=-1) & (lobes_lit[:, -1, 0] > 0)):
-        raise ValueError(f"{path}: channel '{channel}' uses all {slots} slots for scatter lobes; it was not joined with a beam lobe")
+    # The join wrote the beam lobe with beam_lobe_kappa along the focal-spot ray, but the store fuses lobes of almost
+    # the same direction when it merges mixtures: where the scatter mixture holds a forward-scatter lobe along the
+    # ray, the stored beam lobe is that fusion, a few 1e-3 off the ray and at most BEAM_KAPPA_STORED_MAX wide. The
+    # beam lobe is therefore the lobe within BEAM_COS_TOLERANCE of the ray that still has the join's concentration,
+    # or else the most concentrated one there, provided it is at least half as narrow as the join wrote it (a
+    # forward-scatter lobe beside an intact beam lobe can be narrower than the beam lobe, so exactness ranks first).
+    # A voxel whose lobe was fused below that keeps its lobes as scatter.
+    along_ray = (lobes_lit[:, :, 0] > 0) & (np.einsum("vkc,vc->vk", lobes_lit[:, :, 1:4], means) > 1.0 - BEAM_COS_TOLERANCE)
+    exact = np.isclose(lobes_lit[:, :, 4], kappas[:, None], rtol=1e-4)
+    rank = np.where(along_ray, np.where(exact, np.inf, lobes_lit[:, :, 4]), -np.inf)
+    expected = np.minimum(kappas, BEAM_KAPPA_STORED_MAX)
+    is_beam = np.zeros(along_ray.shape, dtype=bool)
+    is_beam[np.arange(len(lit)), rank.argmax(axis=-1)] = along_ray.any(axis=-1) & (rank.max(axis=-1) >= 0.5 * expected)
     beam_weight = np.where(is_beam, lobes_lit[:, :, 0], 0.0).sum(axis=-1)
 
-    # the scatter lobes without the beam lobe, in a scratch layer the merge can read
+    # the lobes without the beam lobe, in a scratch layer the merge can read; a voxel without a recognized beam lobe
+    # hands over all its slots (the empty beam slot is then an all-zero lobe, which the merge ignores)
     scratch = _scratch_channel(counts, voxel_dims)
-    scratch.add_vmf_layer("scatter", slots - 1, unit)
-    scatter_only = np.zeros((len(lit), slots - 1, 5))
+    scratch.add_vmf_layer("scatter", slots, unit)
+    scatter_only = np.zeros((len(lit), slots, 5))
     for v in range(len(lit)):
-        scatter_only[v] = lobes_lit[v][~is_beam[v]][: slots - 1] if is_beam[v].any() else lobes_lit[v][: slots - 1]
-    scatter_flat = np.zeros((flat.shape[0], slots - 1, 5))
+        kept = lobes_lit[v][~is_beam[v]]
+        scatter_only[v, : len(kept)] = kept
+    scatter_flat = np.zeros((flat.shape[0], slots, 5))
     scatter_flat[lit] = scatter_only
-    scratch.get_layer_as_ndarray("scatter")[...] = scatter_flat.reshape(counts + (slots - 1, 5), order="F").astype(np.float32)
+    scratch.get_layer_as_ndarray("scatter")[...] = scatter_flat.reshape(counts + (slots, 5), order="F").astype(np.float32)
     scatter_weight = np.zeros(flat.shape[0])
     scatter_weight[lit] = scatter_only[:, :, 0].sum(axis=-1)
     beam_weight_flat = np.zeros(flat.shape[0])
@@ -379,3 +388,88 @@ def reduce_vmf_lobes(path: str, lobes: int, joined_channel: str = "radiation", s
         if channel in channels and VMF_LAYER in FieldStore.load(path).get_channel(channel).get_layers():
             return "reduced" if reduce(path, lobes, channel) else "unchanged"
     return "no_lobes"
+
+
+UNIFORM_LOBE = (1.0, 0.0, 0.0, 1.0, 0.0)   # weight 1, any unit mean, kappa 0: the uniform distribution
+RELATIVE_ERROR_UNIT = "relative std. error of flux"
+# a valid relative-error layer of a 1e8-photon field has a median of about 0.02 over the lit voxels; the layers written
+# before the error was fixed sit at about 0.5 everywhere
+_MAX_PLAUSIBLE_MEDIAN_ERROR = 0.3
+
+
+def fill_uniform_vmf_lobes(path: str, min_samples: float = None, joined_channel: str = "radiation",
+                           scatter_channel: str = "scatter_field") -> dict:
+    """Gives an existing field the lobes the current VMFTrainer stores for voxels without enough samples: the uniform
+    distribution (weight 1, kappa 0).
+
+    - Exact: a voxel with flux but no lobes gets the uniform lobe (in an unjoined field every voxel without lobes, as
+      the trainer starts every voxel uniform; a joined field keeps voxels without flux empty, as the join does).
+    - Approximate, only with ``min_samples``: a joined voxel without a beam lobe (all its lobes are scatter) whose
+      relative flux error R gives fewer than ``min_samples`` effective samples (n = 1 / R^2) becomes uniform too. The
+      error covers the whole run while the trainer counts its last two passes, so this keeps somewhat more fitted
+      voxels than the trainer would. Needs a valid relative-error layer; a field without one raises ``ValueError``.
+
+    The field is replaced through a temporary file only if something changed.
+
+    :return: ``{"channel": ..., "empty_filled": n, "sparse_filled": n}``, or ``{"channel": None, ...}`` without lobes.
+    """
+    field = FieldStore.load(path)
+    channels = field.get_channel_names()
+    joined = joined_channel in channels and VMF_LAYER in field.get_channel(joined_channel).get_layers()
+    channel = joined_channel if joined else scatter_channel
+    result = {"channel": None, "empty_filled": 0, "sparse_filled": 0}
+    if channel not in channels or VMF_LAYER not in field.get_channel(channel).get_layers():
+        return result
+    result["channel"] = channel
+    src = field.get_channel(channel)
+    lobes = np.asarray(src.get_layer_as_ndarray(VMF_LAYER))
+    weights = lobes[..., 0].sum(axis=-1)
+    uniform = np.zeros(lobes.shape[-2:], dtype=lobes.dtype)
+    uniform[0] = UNIFORM_LOBE
+
+    if joined:
+        flux = np.asarray(src.get_layer_as_ndarray("flux"))[..., 0]
+        empty = (flux > 0) & (weights <= 0)
+    else:
+        empty = weights <= 0
+    sparse = np.zeros_like(empty)
+
+    if min_samples is not None and joined:
+        if "error" not in src.get_layers() or src.get_layer_unit("error") != RELATIVE_ERROR_UNIT:
+            raise ValueError(f"{path}: --min-samples needs a '{RELATIVE_ERROR_UNIT}' error layer")
+        error = np.asarray(src.get_layer_as_ndarray("error"), dtype=np.float64)[..., 0]
+        lit = flux > 0
+        if np.median(error[lit]) > _MAX_PLAUSIBLE_MEDIAN_ERROR:
+            raise ValueError(f"{path}: the error layer is not a valid relative error (median {np.median(error[lit]):.2f} over the lit voxels)")
+        metadata = FieldStore.load_metadata(path)
+        vd = field.get_voxel_dimensions(); vc = field.get_voxel_counts()
+        counts = (vc.x, vc.y, vc.z)
+        origin = metadata.simulation.tube.radiation_origin
+        flat_lobes = lobes.reshape((-1,) + lobes.shape[-2:], order="F")
+        candidates = np.flatnonzero((weights > 0).ravel(order="F"))
+        means, kappas = _voxel_geometry(counts, np.array([vd.x, vd.y, vd.z]), candidates, np.array([origin.x, origin.y, origin.z]))
+        cand = flat_lobes[candidates].astype(np.float64)
+        has_beam = (
+            (cand[:, :, 0] > 0)
+            & np.isclose(cand[:, :, 4], kappas[:, None], rtol=1e-4)
+            & (np.einsum("vkc,vc->vk", cand[:, :, 1:4], means) > 1.0 - 1e-6)
+        ).any(axis=-1)
+        flat_error = error.ravel(order="F")[candidates]
+        with np.errstate(divide="ignore"):
+            effective = np.where(flat_error > 0, 1.0 / np.square(flat_error), np.inf)
+        already_uniform = (cand[:, 0, 0] == 1.0) & (cand[:, 0, 4] == 0.0)
+        chosen = candidates[~has_beam & (effective < min_samples) & ~already_uniform]
+        flat_sparse = np.zeros(int(np.prod(counts)), dtype=bool)
+        flat_sparse[chosen] = True
+        sparse = flat_sparse.reshape(counts, order="F")
+
+    change = empty | sparse
+    result["empty_filled"] = int(empty.sum())
+    result["sparse_filled"] = int(sparse.sum())
+    if not change.any():
+        return result
+    lobes[change] = uniform
+    tmp = path + ".filling"
+    FieldStore.store(field, FieldStore.load_metadata(path), tmp)
+    os.replace(tmp, path)
+    return result

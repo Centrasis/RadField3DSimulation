@@ -1,6 +1,7 @@
 #include "Geant4/G4SceneConstructor.hpp"
 #include "Geometry.hpp"
 #include "RadiationSource.hpp"
+#include "CArm.hpp"
 #include <G4NistManager.hh>
 #include <G4ThreeVector.hh>
 #include <G4PVPlacement.hh>
@@ -89,11 +90,11 @@ G4VPhysicalVolume* Geant4::SceneConstructor::Construct()
 	// the floor itself is not inflated: when nothing exceeds WorldDim, the world equals WorldDim.
 	glm::vec3 half_extent = glm::vec3(this->world_dim.x(), this->world_dim.y(), this->world_dim.z()) / 2.f;
 
-	// meshes that move with the C-arm (image detector, tube) are turned to the pose of this run's tube first
+	// meshes that move with the C-arm (image detector, tube, arm) are turned to the pose of this run's tube first
 	const auto source = RadiationSimulation::World::Get()->get_radiation_source();
 	for (const auto& gm : this->g4meshes) {
 		const auto& mesh = gm->getMesh();
-		if (!mesh->isImageDetector() && !mesh->isXRayTube())
+		if (!mesh->turnsWithCArm())
 			continue;
 		if (source == nullptr)
 			throw std::runtime_error("Mesh \"" + mesh->getName() + "\" of Type \"" + mesh->getType() + "\" moves with the X-ray tube, but no radiation source is set.");
@@ -105,7 +106,7 @@ G4VPhysicalVolume* Geant4::SceneConstructor::Construct()
 			const double distance = gm->fitToBeam(glm::length(focal_spot), source->getShape()->getHalfTangents(), range.x * m, range.y * m);
 			G4cout << "Image detector \"" << mesh->getName() << "\": entrance face " << distance / m << " m from the isocentre" << G4endl;
 		}
-		gm->turnWithCArm(source->getCArmRotation(), mesh->isXRayTube() ? G4ThreeVector(focal_spot.x, focal_spot.y, focal_spot.z) : G4ThreeVector());
+		gm->turnWithCArm(mesh->isCArm() ? source->getCArmStructureRotation() : source->getCArmRotation(), mesh->isXRayTube() ? G4ThreeVector(focal_spot.x, focal_spot.y, focal_spot.z) : G4ThreeVector());
 	}
 
 	const float margin = 1.05f;
@@ -119,7 +120,7 @@ G4VPhysicalVolume* Geant4::SceneConstructor::Construct()
 				grow_to_mesh(child, pos);
 		};
 	for (const auto& gm : this->g4meshes) {
-		if (gm->getMesh()->isImageDetector() || gm->getMesh()->isXRayTube()) {
+		if (gm->getMesh()->turnsWithCArm()) {
 			// turned placements: grow to where the rotated box really lies
 			for (const G4ThreeVector& c : gm->placedBoundingBoxCorners())
 				half_extent = glm::max(half_extent, margin * glm::abs(glm::vec3(c.x(), c.y(), c.z())));
@@ -171,6 +172,11 @@ G4VPhysicalVolume* Geant4::SceneConstructor::Construct()
 
 	for (auto& m : g4meshes) {
 		this->place_mesh(m, worldLog);
+	}
+	// checked once everything is placed, so the arm is tested against all other volumes
+	for (const auto& m : g4meshes) {
+		if (m->getMesh()->isCArm() && m->overlapsAfterPlacement(20000))
+			throw RadiationSimulation::Geometry::CArm::PoseCollision("The C-arm \"" + m->getMesh()->getName() + "\" collides with other geometry in this pose.");
 	}
 
 	if (RadiationSimulation::World::Get()->get_radiation_field_detector()) {
@@ -262,6 +268,13 @@ void RadiationSimulation::Geant4::MaterialSolver::init_custom_materials()
 	PU_foam->AddElement(O, 0.10);
 	PU_foam->AddElement(N, 0.06);
 	MaterialSolver::custom_materials["PU_foam"] = PU_foam;
+
+	// C-arm structure smeared over a solid mesh: a hollow aluminium box section (~10 x 20 cm, 5 mm walls, ~15 % of
+	// the cross section) under ~3 mm polycarbonate covers, i.e. ~0.40 g/cm3 Al and ~0.11 g/cm3 polymer.
+	G4Material* CArm_AlPolymer = new G4Material("CArm_AlPolymer", 0.51 * g / cm3, 2);
+	CArm_AlPolymer->AddMaterial(nist->FindOrBuildMaterial("G4_Al"), 0.78);
+	CArm_AlPolymer->AddMaterial(nist->FindOrBuildMaterial("G4_POLYCARBONATE"), 0.22);
+	MaterialSolver::custom_materials["CArm_AlPolymer"] = CArm_AlPolymer;
 }
 
 G4Material* MaterialSolver::get_material(const G4String& name)

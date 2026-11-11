@@ -64,6 +64,9 @@ namespace RadiationSimulation::Geometry {
 		/** Type of meshes that move with the X-ray tube: modelled around the focal spot at the origin in the base pose
 		* (beam along +Y), they are rotated like the tube and moved to its focal spot. */
 		static constexpr const char* XRAY_TUBE_TYPE = "xraytube";
+		/** Type of the C-arm's own structure (the C, its rail and covers): modelled in the base pose like an image
+		* detector, it is turned about the isocentre with the tube but never fitted to the beam. */
+		static constexpr const char* C_ARM_TYPE = "carm";
 		/// Types name layers of the stored geometry channel, whose names hold at most this many characters.
 		static constexpr size_t MAX_TYPE_LENGTH = 63;
 	protected:
@@ -109,6 +112,9 @@ namespace RadiationSimulation::Geometry {
 
 		inline const bool isImageDetector() const { return this->type == Mesh::IMAGE_DETECTOR_TYPE; };
 		inline const bool isXRayTube() const { return this->type == Mesh::XRAY_TUBE_TYPE; };
+		inline const bool isCArm() const { return this->type == Mesh::C_ARM_TYPE; };
+		/// Whether the mesh moves with the C-arm (image detector, X-ray tube or the arm itself).
+		inline const bool turnsWithCArm() const { return this->isImageDetector() || this->isXRayTube() || this->isCArm(); };
 
 		/** Distance range (min, max) in metres of an image detector's entrance face from the isocentre. When set, the
 		* detector is not kept at its modelled distance but moved as far out as the beam still fits on it (never

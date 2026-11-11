@@ -458,6 +458,31 @@ TEST(CArmRotation, TurnsTheBasePoseOntoTheBeam) {
 	}
 }
 
+TEST(CArmRotation, FieldNeverRollsAboutTheBeam) {
+	RadiationSimulation::XRaySource source(60e3f, std::make_unique<RadiationSimulation::RectangleSourceShape>(glm::vec2(0.2f, 0.1f), 1.f));
+	for (float phi = 0.f; phi < 360.f; phi += 15.f) {
+		for (float theta = 0.f; theta <= 180.f; theta += 15.f) {
+			const glm::quat angles = glm::angleAxis(glm::radians(theta), glm::vec3(1.f, 0.f, 0.f)) * glm::angleAxis(glm::radians(phi), glm::vec3(0.f, 1.f, 0.f));
+			const glm::vec3 dir = angles * glm::vec3(0.f, 0.f, -1.f);
+			source.setTransform(-dir * 0.785f, dir);
+			const glm::quat r = source.getRotation();
+			EXPECT_NEAR(glm::dot(r * glm::vec3(0.f, 0.f, -1.f), dir), 1.f, 1e-5f) << phi << " " << theta;
+			const glm::vec3 x = r * glm::vec3(1.f, 0.f, 0.f);
+			// the collimator's x edge stays horizontal and perpendicular to the beam
+			EXPECT_NEAR(x.z, 0.f, 1e-5f) << phi << " " << theta;
+			EXPECT_NEAR(glm::dot(x, dir), 0.f, 1e-5f) << phi << " " << theta;
+			// and the arm is a turn about Z after a tilt about X: no roll left once both are undone
+			const float tilt = std::asin(glm::clamp(dir.z, -1.f, 1.f));
+			const float turn = (std::abs(dir.z) > 1.f - 1e-6f) ? 0.f : std::atan2(-dir.x, dir.y);
+			const glm::quat arm = glm::angleAxis(turn, glm::vec3(0.f, 0.f, 1.f)) * glm::angleAxis(tilt, glm::vec3(1.f, 0.f, 0.f));
+			EXPECT_NEAR(std::abs(glm::dot(glm::normalize(source.getCArmRotation()), arm)), 1.f, 1e-4f) << phi << " " << theta;
+		}
+	}
+	// lateral beam: the field's y side stays along the patient's long axis Z as in the base pose (it rolled by 90° before)
+	source.setTransform(glm::vec3(0.785f, 0.f, 0.f), glm::vec3(-1.f, 0.f, 0.f));
+	EXPECT_NEAR(glm::dot(source.getRotation() * glm::vec3(0.f, 1.f, 0.f), glm::vec3(0.f, 0.f, 1.f)), 1.f, 1e-5f);
+}
+
 TEST(SourceShapes, HalfTangentsGiveTheBeamHalfSizeAtUnitDistance) {
 	const glm::vec2 rect = RadiationSimulation::RectangleSourceShape(glm::vec2(0.2f, 0.1f), 0.785f).getHalfTangents();
 	EXPECT_NEAR(rect.x, 0.1f / 0.785f, 1e-6f);

@@ -2,6 +2,8 @@
 #include "RadiationSimulation.hpp"
 #include "World.hpp"
 #include "Geometry.hpp"
+#include "CArm.hpp"
+#include "RadiationSource.hpp"
 #include "Geant4/G4Geometry.hpp"
 #include <G4PhysicalVolumeStore.hh>
 #include <G4VPhysicalVolume.hh>
@@ -139,4 +141,93 @@ TEST(CArmPlacement, DetectorIsFittedToTheBeam) {
 	EXPECT_NEAR(entrance_after_fit(glm::vec3(0.02f, 0.5f, 0.f), glm::vec2(0.20f), 0.3 * m, max_distance, distance), 0.3925 * m, 1e-3);
 	// a beam axis that misses the plate cannot be fitted
 	EXPECT_THROW(entrance_after_fit(glm::vec3(0.2f, 0.5f, 0.f), glm::vec2(0.20f), min_distance, max_distance, distance), std::runtime_error);
+}
+
+
+TEST(CArmPlacement, GeometryFreePlacementMatchesTheGeant4Placement) {
+	// the analytical simulator places meshes with CArm::place, the Geant4 binary with Geant4::Mesh::fitToBeam and
+	// turnWithCArm: both must put a detector (fitted or not), a tube housing and the arm at the same corners
+	struct Case { float phi, theta, psi; glm::vec3 detector_at; glm::vec2 field; bool fitted; };
+	const Case cases[] = {
+		{ 0.f, 90.f, 0.f, glm::vec3(0.f, 0.5f, 0.f), glm::vec2(0.10f), false },
+		{ 30.f, 60.f, 25.f, glm::vec3(0.05f, 0.5f, -0.02f), glm::vec2(0.10f, 0.20f), false },
+		{ 200.f, 120.f, -90.f, glm::vec3(0.02f, 0.5f, 0.03f), glm::vec2(0.20f, 0.12f), true },
+		{ 90.f, 45.f, 180.f, glm::vec3(0.f, 0.48f, 0.f), glm::vec2(0.05f), true },
+		{ 359.f, 179.f, 10.f, glm::vec3(-0.03f, 0.45f, 0.f), glm::vec2(0.21f), true },
+	};
+	const float source_distance = 0.785f;
+	for (const Case& c : cases) {
+		const glm::quat angles = glm::angleAxis(glm::radians(c.theta), glm::vec3(1.f, 0.f, 0.f)) * glm::angleAxis(glm::radians(c.phi), glm::vec3(0.f, 1.f, 0.f));
+		const glm::vec3 dir = angles * glm::vec3(0.f, 0.f, -1.f);
+		XRaySource source(50e3f, std::make_unique<RectangleSourceShape>(c.field, source_distance));
+		source.setTransform(-dir * source_distance, dir);
+		source.setCArmPsi(glm::radians(c.psi));
+		const glm::vec2 half_tangents = source.getShape()->getHalfTangents();
+
+		auto plate = [&](const std::string& name) {
+			auto mesh = make_box(name, glm::vec3(0.17f, 0.0003f, 0.17f));
+			mesh->setType("ImageDetector");
+			mesh->setPosition(c.detector_at);
+			if (c.fitted)
+				mesh->setIsocenterDistanceRange(glm::vec2(0.45f, 0.62f));
+			return mesh;
+		};
+		auto housing = [&](const std::string& name) {
+			auto mesh = make_box(name, glm::vec3(0.05f, 0.03f, 0.05f));
+			mesh->setType("XRayTube");
+			mesh->setPosition(glm::vec3(0.01f, -0.05f, 0.f));
+			return mesh;
+		};
+		auto arm = [&](const std::string& name) {
+			auto mesh = make_box(name, glm::vec3(0.06f, 0.10f, 0.45f));
+			mesh->setType("CArm");
+			mesh->setPosition(glm::vec3(0.f, 0.f, 0.9f));
+			return mesh;
+		};
+		const auto base_corners = [](const Mesh& mesh) { return CArm::placed_bounding_box_corners(mesh); };
+
+		// Geant4 path, in millimetres
+		auto g4_plate_mesh = plate("g4_plate");
+		auto g4_tube_mesh = housing("g4_tube");
+		auto g4_arm_mesh = arm("g4_arm");
+		Geant4::Mesh g4_plate(g4_plate_mesh, m), g4_tube(g4_tube_mesh, m), g4_arm(g4_arm_mesh, m);
+		const glm::vec3 focal_spot = source.getLocation();
+		if (c.fitted)
+			g4_plate.fitToBeam(source_distance * m, half_tangents, 0.45 * m, 0.62 * m);
+		g4_plate.turnWithCArm(source.getCArmRotation(), G4ThreeVector());
+		g4_tube.turnWithCArm(source.getCArmRotation(), G4ThreeVector(focal_spot.x, focal_spot.y, focal_spot.z) * m);
+		g4_arm.turnWithCArm(source.getCArmStructureRotation(), G4ThreeVector());
+
+		// Geant4-free path, in metres
+		auto plate_mesh = plate("plate");
+		auto tube_mesh = housing("tube");
+		auto arm_mesh = arm("arm");
+		const CArm::Pose pose{ source.getCArmRotation(), focal_spot, half_tangents, source.getCArmStructureRotation() };
+		const std::optional<float> distance = CArm::place(*plate_mesh, pose);
+		EXPECT_EQ(distance.has_value(), c.fitted);
+		EXPECT_FALSE(CArm::place(*tube_mesh, pose).has_value());
+		EXPECT_FALSE(CArm::place(*arm_mesh, pose).has_value());
+
+		const auto expect_same_corners = [&](const std::vector<G4ThreeVector>& g4, const Mesh& mesh) {
+			const std::vector<glm::vec3> corners = base_corners(mesh);
+			ASSERT_EQ(g4.size(), corners.size());
+			for (size_t i = 0; i < corners.size(); i++)
+				EXPECT_LT(glm::length(to_m(g4[i]) - corners[i]), 1e-5f) << "phi " << c.phi << " theta " << c.theta << " corner " << i << " of " << mesh.getName();
+		};
+		expect_same_corners(g4_plate.placedBoundingBoxCorners(), *plate_mesh);
+		expect_same_corners(g4_tube.placedBoundingBoxCorners(), *tube_mesh);
+		expect_same_corners(g4_arm.placedBoundingBoxCorners(), *arm_mesh);
+		// psi turns the arm about the beam axis: its centre keeps its distance from the beam and from the isocentre
+		const glm::vec3 arm_centre = arm_mesh->getPosition();
+		EXPECT_NEAR(glm::length(arm_centre - dir * glm::dot(arm_centre, dir)), 0.9f, 1e-4f);
+		const glm::vec3 unturned = source.getCArmRotation() * glm::vec3(0.f, 0.f, 0.9f);
+		EXPECT_NEAR(glm::degrees(std::atan2(glm::length(glm::cross(arm_centre, unturned)), glm::dot(arm_centre, unturned))), std::abs(std::remainder(c.psi, 360.f)), 1e-2f);
+		if (c.fitted) {
+			// the entrance face lies at the fitted distance along the beam from the isocentre
+			float entrance = 1e9f;
+			for (const glm::vec3& corner : base_corners(*plate_mesh))
+				entrance = std::min(entrance, glm::dot(corner, dir));
+			EXPECT_NEAR(entrance, *distance, 1e-4f);
+		}
+	}
 }

@@ -13,13 +13,21 @@ using namespace RadiationSimulation::Analytical;
 float AnalyticalVoxelizer::material_density(const std::string& name)
 {
     // (prefix, g/cm^3); first matching prefix wins. Mirrors the analytical Python reference.
-    static const std::array<std::pair<const char*, float>, 6> table = {{
+    // The custom materials carry the densities of Geant4::MaterialSolver::init_custom_materials.
+    static const std::array<std::pair<const char*, float>, 13> table = {{
         {"G4_TISSUE_SOFT", 1.00f},
         {"G4_LUNG",        0.26f},
         {"G4_BONE",        1.85f},
         {"G4_A-150_TISSUE",1.13f},
         {"G4_WATER",       1.00f},
         {"G4_AIR",         0.0012f},
+        {"G4_CONCRETE",    2.30f},
+        {"CarbonFiber",    1.60f},
+        {"PU_foam",        0.05f},
+        {"CsI",            4.51f},
+        {"Polyamide",      1.14f},
+        {"ThoraticSpongiosa", 1.074f},
+        {"CArm_AlPolymer", 0.51f},
     }};
     for (const auto& [prefix, rho] : table)
         if (name.rfind(prefix, 0) == 0)
@@ -38,6 +46,11 @@ namespace {
     // parent's density when composited in order.
     void collect_solids(const std::shared_ptr<Mesh>& mesh, const glm::vec3& parent_pos, std::vector<Solid>& out)
     {
+        // An image detector is a sub-voxel thin plate: the surface voxelization would turn it into whole voxels of
+        // detector material (tens of times its mass), so it is not part of the density grid. The tracer attenuates the
+        // direct beam with it as a thin plate of its own material (AnalyticalPlate); it also appears in the geometry channel.
+        if (mesh->isImageDetector())
+            return;
         const glm::vec3 world_pos = parent_pos + mesh->getPosition();  // additive through parents (G4 nesting)
         const glm::mat3 rot = glm::mat3_cast(mesh->getRotation());     // about the mesh origin
         const glm::vec3 scale = mesh->getScale();

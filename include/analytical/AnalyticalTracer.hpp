@@ -6,6 +6,19 @@ namespace RadiationSimulation {
     namespace Analytical {
 
         /**
+         * @brief A thin absorber perpendicular to the beam axis (the image detector): a plate in the beam frame that
+         * attenuates the direct beam with its own, non-water-like material. Too thin for the density grid, whose
+         * surface voxelization would blow it up to whole voxels.
+         */
+        struct AnalyticalPlate {
+            bool present = false;
+            float entrance_m = 0.f;                 ///< axial distance of the entrance face from the focal spot (m)
+            float u0 = 0.f, u1 = 0.f;               ///< extent along e1 relative to the beam axis (m)
+            float v0 = 0.f, v1 = 0.f;               ///< extent along e2 relative to the beam axis (m)
+            std::vector<float> optical_thickness;   ///< per field-spectrum bin, at perpendicular incidence
+        };
+
+        /**
          * @brief Beam / grid configuration for one analytical field, in world (field-centered) metres.
          *
          * The grid is x-fastest flat-indexed (idx = z*ny*nx + y*nx + x), matching RadFiled3D's
@@ -26,6 +39,7 @@ namespace RadiationSimulation {
             float cone_half_rad = 0.f;    ///< cone half opening angle (rad)
             float focal_spot_m = 0.f;     ///< effective focal-spot size (m) → beam-edge penumbra blur
             float particles = 1.f;        ///< primaries (only scales the mimicked statistical error)
+            AnalyticalPlate plate;        ///< the image detector, if any
         };
 
         /**

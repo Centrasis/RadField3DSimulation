@@ -28,11 +28,11 @@ def add_patient_translation(rf3_path: str, translation: Sequence[float]) -> None
 
 
 PATIENT_OVERLAP_KEY = "patient_overlap"
-C_ARM_LAYERS = ("imagedetector", "xraytube")
+C_ARM_LAYERS = ("imagedetector", "xraytube", "carm")
 
 
 def mark_patient_overlap(rf3_path: str) -> bool:
-    """Flag whether the C-arm collides with the patient: an ``imagedetector`` or ``xraytube`` geometry layer shares a
+    """Flag whether the C-arm collides with the patient: an ``imagedetector``, ``xraytube`` or ``carm`` geometry layer shares a
     voxel with the ``patient`` layer, or the tube's focal spot lies in a patient voxel.
 
     **Every** field gets the byte dynamic metadata ``patient_overlap`` -- 1 when it overlaps, 0 when it does not --

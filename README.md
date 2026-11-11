@@ -13,6 +13,7 @@ The validation dataset (measured and simulated) is available here:
     - [Running](#running)
 - [Generating Datasets](#generating-datasets)
   - [Directly using RadField3D](#directly-using-radfield3d)
+    - [Source angles](#source-angles)
     - [Geometry world description file](#geometry-world-description-file)
   - [Using the DatasetGenerator](#using-the-datasetgenerator)
     - [Example of a dataset definition file](#example-of-a-dataset-definition-file)
@@ -71,8 +72,9 @@ The commandline interface of RadField3D can be printed by calling: `./RadField3D
 The parameters are the following:
 - *out*: The output path of the apllication. Must end with `.rf3` otherwise the extension will be added.
 - *max-energy*: Maximum energy to consider for the energy spectrum in each voxel. Value must be given in eV.
-- *source-phi*: The rotation in degree inside the horizontal plane.
-- *source-theta*: The rotation in degree inside the vertical plane.
+- *source-phi*: The rotation in degree inside the horizontal plane (about Y), see [Source angles](#source-angles).
+- *source-theta*: The tilt in degree about X that follows it, see [Source angles](#source-angles).
+- *source-psi*: The turn in degree of the C-arm structure (meshes of Type `CArm`) about the beam axis. The beam and its field do not change. Default: 0.
 - *source-distance*: Radius of the roation sphere in meter (Equals the distance of the source from the center of the scene).
 - *world-dim*: Dimensions of the World in meter provided as a string looking like this: "x y z". The used source can be located outside this tracking volume.
 - *particles*: Maximum count of particles (photons) to track.
@@ -99,6 +101,19 @@ The parameters are the following:
 - *gui*: Show the Geant4 GUI. Only available in a `WITH_GEANT4_UIVIS` build; ignored otherwise.
 
 Run `./RadField3D --help` for this list at any time (it works without the Geant4 datasets).
+
+#### Source angles
+![φ, θ and ψ](docs/source-angles.svg)
+
+The patient lies along Z (head at +Z), Y points up and X runs across the table. The beam direction is
+`d = Rx(θ)·Ry(φ)·(0, 0, −1) = (−sin φ, cos φ·sin θ, −cos φ·cos θ)`, and the source sits at `−d · source-distance`.
+`φ = 0°`, `θ = 90°` is the base pose: tube under the table, beam pointing up along +Y.
+
+The collimated field is oriented like on a C-arm: the source frame is a turn of the arm about the patient's long axis Z after a tilt about X, so the field never rolls about the beam. Its x side (the first value of a rectangle's size) is always horizontal, `x = d × Z`, and its y side lies in the plane of d and Z; in the base pose x runs along X and y along Z. With the beam along ±Z the turn about Z is taken as zero. Fields written before this frame carry no `xray_tube_source_frame` metadata; their field was the shortest rotation from −Z onto d and rolled about the beam with φ.
+
+*ψ* turns only the C-arm's own structure about the beam, right-handed about d. It is the extra degree of freedom of a real C-arm (e.g. the C swung from the head end to the side): the primary beam, the collimator, the image detector and the tube housing stay where φ and θ put them, but the arm's mass moves and with it the scatter it adds to the field. It is stored as `c_arm_psi_deg`, so a model trained on these fields needs it as an input next to φ and θ.
+
+The DatasetGenerator samples beam directions uniformly on the sphere: within a `source_angle_phi` range, φ takes the density |cos φ| (the area element of this parametrisation is |cos φ| dφ dθ), and θ stays uniform in its range. Uniform φ would crowd the beams at the poles of the parametrisation, ±X: lateral beams about 2× denser than uniform, beams in the YZ plane about 0.65×. Datasets generated before 2026-11-11 were sampled that way.
 
 #### Example commandline
 ``./RadField3D --out test.rf3 --max-energy 1.5e+4 --source-phi 0 --source-theta 0 --source-distance 2 --world-dim "1 1 1" --particles 1e+7 --voxel-dim 0.02 --geom <a-geom-file> --spectrum <spectrum.csv>``
@@ -158,9 +173,12 @@ With `mesh_name` and `child_name_name` name being the name of the mesh as export
 
 `Type` is a freely assignable category of the mesh, e.g. `"Patient"`, `"Shield"` or `"Table"`. Types are matched case-insensitively and stored in lower case (`"Shield"` and `"SHIELD"` are the same type `shield`) and may have at most 63 characters. A mesh without a `Type` takes the type of its parent (recursively), a root mesh without one is of type `unknown`; a child with its own `Type` is a separate type. At most one mesh may declare the type `patient`; its translation is what the DatasetGenerator records as the patient translation. Descriptions using the former boolean `"Patient": true` are still read as `"Type": "Patient"` (`"Patient": false` declares no type).
 
-Two types are reserved for meshes on the C-arm and are turned with the beam for every field. Model them in the base pose: tube under the table, beam pointing up along +Y, which is `phi = 0°`, `theta = 90°`.
+Three types are reserved for meshes on the C-arm and are turned with the beam for every field. Model them in the base pose: tube under the table, beam pointing up along +Y, which is `phi = 0°`, `theta = 90°`.
 - **`"ImageDetector"`** is modelled relative to the isocentre, e.g. a detector plate above the table. It keeps its distance to the isocentre, stays opposite the tube and faces the beam. With `"IsocenterDistance": { "Min": 0.45, "Max": 0.62 }` its distance follows the collimation instead: its entrance face moves as far out as the beam still fits on it, within these limits (metres). Small fields leave the plate partly unlit at `Max`; keep the collimation small enough that the beam fits at `Min`.
 - **`"XRayTube"`** is modelled around the focal spot placed at the origin, e.g. a tube housing or collimator. It moves with the focal spot.
+- **`"CArm"`** is the arm itself (the C, its rail and covers), modelled relative to the isocentre like the image detector, e.g. with its back towards the head end. It turns with φ and θ about the isocentre and in addition by ψ about the beam axis; it is never fitted to the beam. Draw it in the base pose with the isocentre at the origin: the C lies in the YZ plane around the patient's head end (+Z), its ends under the tube (−Y) and behind the image detector (+Y), and nothing of it in the primary beam. Give it a material that stands in for its structure, e.g. `CArm_AlPolymer`. `python tools/add_carm_mesh.py <geometry.obj>` appends such an arm to a geometry and its `.desc` (defaults: Siemens Artis Q with 78.5 cm focus–isocentre distance, C-arm depth 94 cm).
+
+  A real C-arm cannot take a pose in which it runs into the table, the patient or the room, and Geant4 cannot transport through overlapping volumes. RadField3D therefore checks the placed arm against all other volumes before simulating; if they overlap it writes no field and exits with code 3, and the DatasetGenerator drops that sample. The analytical simulator does not check this.
 
 The former `Source`/`SourceOffsets` keys are no longer supported.
 
@@ -233,6 +251,10 @@ Parameters:
         {
             "name": "source_angle_theta",
             "value": 0                  // This is a fixed value that never changes
+        },
+        {
+            "name": "source_angle_psi",
+            "range": [-90.0, 90.0]      // Turn of the C-arm mesh about the beam; 0 when left out
         },
         {
             "name": "source_opening_angle",
@@ -362,6 +384,7 @@ Additionally, ``MaterialSolver::init_custom_materials()`` from [``G4SceneConstru
 | ThoraticSpongiosa | Approximating ICRU Report 46 for the Thoratic spine ; ρ = 1.074 g/cm^3 |
 | CsI (Cesium Iodide) | 50% Cs, 50% I ([source](https://apc.u-paris.fr/~franco/g4doxy4.10/html/class_materials.html)); ρ = 4.51 g/cm^3|
 | PU_foam (Polyurethan foam) | 48% C, 36% H, 10% O, 6% N ; ρ = 0.05 g/cm^3 |
+| CArm_AlPolymer | 78% G4_Al, 22% G4_POLYCARBONATE (by mass) ; ρ = 0.51 g/cm^3: a hollow aluminium box section (~10 × 20 cm, 5 mm walls) under ~3 mm polycarbonate covers, smeared over a solid C-arm mesh |
 ## Viewing and Exploring Datasets
 For viewing the results of the simulation and analyzing whole datasets, we provide the so called `RadFiled3DExplorer`. That little python program offers a GUI to view radiation fields generated with our simulation software. You find the project [here](https://github.com/Centrasis/RadFiled3DExplorer).
 

@@ -154,3 +154,31 @@ def test_group_definition_errors(tmp_path):
         GeometrySampler(desc, {"g": {"Meshes": [], "Translation": {"X": 0.1}}})
     with pytest.raises(ValueError, match="not in"):
         GeometrySampler(desc, {"g": {"Meshes": ["patient", "Tabel"], "Translation": {"X": 0.1}}}).sample_transformations(str(tmp_path / "o.desc"))
+
+
+def test_phi_sampling_gives_uniform_beam_directions():
+    import random
+    from create_dataset import Parameter
+    random.seed(1)
+    phi = Parameter("source_angle_phi", (0.0, 359.99))
+    theta = Parameter("source_angle_theta", (0.0, 179.99))
+    n = 200_000
+    p = np.radians([phi.sample() for _ in range(n)])
+    t = np.radians([theta.sample() for _ in range(n)])
+    d = np.stack([-np.sin(p), np.cos(p) * np.sin(t), -np.cos(p) * np.cos(t)], axis=1)
+    # uniform on the sphere <=> every coordinate is uniform in [-1, 1] (Archimedes)
+    for k in range(3):
+        hist, _ = np.histogram(d[:, k], bins=10, range=(-1.0, 1.0))
+        assert np.all(np.abs(hist / (n / 10) - 1.0) < 0.03), (k, hist / (n / 10))
+
+
+def test_phi_sampling_stays_in_a_partial_range():
+    import random
+    from create_dataset import Parameter
+    random.seed(2)
+    for lo, hi in [(-90.0, 90.0), (80.0, 100.0), (45.0, 45.0), (200.0, 300.0)]:
+        values = [Parameter("source_angle_phi", (lo, hi)).sample() for _ in range(2000)]
+        assert min(values) >= lo and max(values) <= hi
+    # density |cos phi|: in [0, 90] a quarter of the mass lies below 14.48 deg (asin 0.25)
+    values = np.array([Parameter("source_angle_phi", (0.0, 90.0)).sample() for _ in range(40_000)])
+    assert abs(np.mean(values < np.degrees(np.arcsin(0.25))) - 0.25) < 0.01

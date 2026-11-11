@@ -15,7 +15,12 @@ import platform
 from helpers import join_rf3_file, add_patient_translation, mark_patient_overlap
 from helpers.metadata_field import PATIENT_OVERLAP_KEY
 from helpers.join_field import VMF_JOIN_MODES
+
+# RadField3D's exit code for a pose in which the C-arm (meshes of Type CArm) collides with other geometry
+# (CArm::POSE_COLLISION_EXIT_CODE): nothing was simulated, the sample is dropped.
+POSE_COLLISION_EXIT_CODE = 3
 import uuid
+import math
 from copy import deepcopy
 import logging
 from rich.logging import RichHandler
@@ -41,6 +46,26 @@ logging.basicConfig(
 LOGGER = logging.getLogger("RadField3D-Generator")
 
 
+def _abs_cos_integral(phi: float) -> float:
+    """Antiderivative of |cos| (radians), continuous and increasing: 2n + (-1)^n sin(phi) with n = round(phi / pi)."""
+    n = math.floor((phi + math.pi / 2.0) / math.pi)
+    return 2.0 * n + (-1.0) ** n * math.sin(phi)
+
+
+def sample_phi_uniform_on_sphere(lo_deg: float, hi_deg: float) -> float:
+    """Draw source_angle_phi (degrees) in [lo, hi] so that the beam directions are uniform on the sphere.
+
+    The beam is d = Rx(theta) Ry(phi) (0, 0, -1) = (-sin phi, cos phi sin theta, -cos phi cos theta), whose area element
+    is |cos phi| dphi dtheta: phi takes the density |cos phi| (inverse transform of its antiderivative), theta stays
+    uniform. Uniform phi instead crowds the beams at the poles of this parametrisation, +-X (lateral beams, ~2x).
+    """
+    lo, hi = math.radians(lo_deg), math.radians(hi_deg)
+    g = random.uniform(_abs_cos_integral(lo), _abs_cos_integral(hi))
+    n = math.floor((g + 1.0) / 2.0)
+    phi = n * math.pi + math.asin(max(-1.0, min(1.0, g - 2.0 * n)))
+    return min(max(math.degrees(phi), min(lo_deg, hi_deg)), max(lo_deg, hi_deg))
+
+
 class ParameterValue(NamedTuple):
     name: str
     value: Any
@@ -58,7 +83,7 @@ class ParameterValue(NamedTuple):
 
 
 class Parameter(object):
-    VALID_NAMES = ["energy", "source_distance", "source_angle_phi", "source_angle_theta", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim", "world_material", "angular_resolution"]
+    VALID_NAMES = ["energy", "source_distance", "source_angle_phi", "source_angle_theta", "source_angle_psi", "source_opening_angle", "source_shape", "source_spectra", "geometry", "tracer_algorithm", "bin_count", "voxel_size", "particles", "world_dim", "world_material", "angular_resolution"]
 
     def __init__(self, name: str, range: Union[tuple[int, int], tuple[float, float], list[any]], is_range: bool = None):
         self.name = name.lower()
@@ -90,6 +115,8 @@ class Parameter(object):
             ]
             return " ".join(str(c) for c in components)
         if self.is_range:
+            if self.name == "source_angle_phi":
+                return sample_phi_uniform_on_sphere(float(self.range[0]), float(self.range[1]))
             if isinstance(self.range[0], int):
                 return random.randint(self.range[0], self.range[1])
             elif isinstance(self.range[0], float):
@@ -529,11 +556,14 @@ def write_spectrum_file(src_file: str, out_path: str):
     energies = spectrum[0]
     fluence = spectrum[1]
 
-    # write histogram to file
-    with open(out_path, "w") as f:
+    # write histogram to file; through a temporary file, as parallel processes may share the destination and a
+    # simulation must never read a half-written spectrum
+    tmp_path = f"{out_path}.{os.getpid()}.tmp"
+    with open(tmp_path, "w") as f:
         f.write(f"Energy[eV]    Fluence[]")
         for i in range(len(energies)):
             f.write(f"\n{energies[i] * 1000}    {fluence[i]}")
+    os.replace(tmp_path, out_path)
 
 
 if __name__ == "__main__":
@@ -837,6 +867,8 @@ if __name__ == "__main__":
         for nb_sample, sample_parameters in enumerate(parameters):
             spectra_path: Union[str, None] = None
             world_material = "Air"
+            # turn of the C-arm structure (meshes of Type CArm) about the beam axis; the beam itself does not change
+            psi = 0.0
             nb_sample += preexisting_samples_max_nb
             out_file_basename = str(uuid.uuid4()).replace('-', '') if USE_RANDOM_NAMES else f"{nb_sample:04d}"
             for param in sample_parameters:
@@ -848,6 +880,8 @@ if __name__ == "__main__":
                     phi = param.value
                 elif param.name == "source_angle_theta":
                     theta = param.value
+                elif param.name == "source_angle_psi":
+                    psi = param.value
                 elif param.name == "source_opening_angle":
                     source_opening_angle = param.value
                     # a fixed rectangle size may be given as a list [x, y]; the CLI expects "x y"
@@ -920,8 +954,10 @@ if __name__ == "__main__":
                         src_file=spec_file,
                         out_path=spec_csv_file
                     )
-                    if not os.path.exists(os.path.join(out_dir, os.path.basename(info_file))):
-                        shutil.copyfile(info_file, os.path.join(out_dir, "spectra", os.path.basename(info_file)))
+                    info_target = os.path.join(out_dir, "spectra", os.path.basename(info_file))
+                    if not os.path.exists(info_target):
+                        shutil.copyfile(info_file, f"{info_target}.{os.getpid()}.tmp")
+                        os.replace(f"{info_target}.{os.getpid()}.tmp", info_target)
                 spec_csv_file = spec_csv_file.replace("\\", "/")
                 spec_args = [
                     "--spectrum", spec_csv_file
@@ -969,6 +1005,7 @@ if __name__ == "__main__":
                         "--max-energy", str(Emax),
                         "--source-phi", str(phi),
                         "--source-theta", str(theta),
+                        "--source-psi", str(psi),
                         "--source-distance", str(source_distance),
                         "--world-dim", f"{world_size[0]} {world_size[1]} {world_size[2]}",
                         "--angular-resolution", f"{angular_resolution[0]} {angular_resolution[1]}",
@@ -1006,6 +1043,12 @@ if __name__ == "__main__":
                 err = out.stderr
                 stdout = out.stdout.decode()
                 ret_code = out.returncode
+                if ret_code == POSE_COLLISION_EXIT_CODE:
+                    progress.update(sampling_task, advance=1)
+                    LOGGER.info(f"Rejected {out_name}: the C-arm collides with the geometry in this pose (phi {phi}, theta {theta}, psi {psi}).")
+                    if geometry_desc_file is not None and os.path.dirname(os.path.abspath(geometry_desc_file)) == os.path.abspath(os.path.join(out_dir, "geom_desc")):
+                        os.remove(geometry_desc_file)
+                    continue
 
             progress.update(sampling_task, advance=1)
 
